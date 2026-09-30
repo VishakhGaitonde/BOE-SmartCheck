@@ -40,3 +40,75 @@ The AI produces a recommendation only. **The BOE remains the final authority** a
 ---
 
 ## Project Structure
+
+smart-boe/
+├── backend/ # FastAPI app, agents, RAG pipeline, DB
+├── frontend/ # React + Vite UI
+└── README.md
+
+
+(See full directory structure in project docs.)
+
+---
+
+## Setup
+
+### Backend
+
+````bash
+cd backend
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env       # fill in secrets/API keys
+uvicorn app.main:app --reload
+````
+
+### Frontend
+
+````bash
+cd frontend
+npm install
+npm run dev
+````
+
+---
+
+## Environment Variables
+
+Create a `.env` file in `backend/` based on `.env.example`:
+
+````
+BOE_USERNAME=boe_admin
+BOE_PASSWORD_HASH=<bcrypt-hash>
+JWT_SECRET=<your-secret>
+LLM_API_KEY=<your-llm-api-key>
+````
+
+> Never commit `.env` or expose API keys in frontend code.
+
+---
+
+## Workflow
+
+1. Log in with the single BOE admin account
+2. Start a new SEE verification
+3. Upload the question paper, syllabus, and textbook
+4. Select the SEE pattern (50 or 100 marks)
+5. Click **Verify Paper**
+6. Review the overall paper summary and question-wise results
+7. Record BOE decisions (Accept / Reject / Override) per question
+8. Generate the final PDF report
+
+---
+
+## Status
+
+🚧 Under active development — final-year engineering project.
+
+---
+
+## License
+
+For academic use.
+
