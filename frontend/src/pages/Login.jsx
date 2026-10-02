@@ -21,34 +21,48 @@ export default function Login() {
   };
 
   return (
-    <div style={{ maxWidth: 320, margin: "80px auto", fontFamily: "sans-serif" }}>
-      <h2>Smart BOE Login</h2>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label>Username</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            style={{ width: "100%", padding: 8 }}
-            required
-          />
+    <div className="centered-screen">
+      <div className="page-narrow" style={{ width: "100%" }}>
+        <div className="card">
+          <div className="navbar-brand" style={{ marginBottom: 20, justifyContent: "center" }}>
+            <span className="dot" />
+            Smart BOE
+          </div>
+          <h2 className="card-title" style={{ textAlign: "center" }}>Welcome back</h2>
+          <p className="card-subtitle" style={{ textAlign: "center" }}>
+            Sign in to access the BOE dashboard
+          </p>
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Username</label>
+              <input
+                type="text"
+                className="form-input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input
+                type="password"
+                className="form-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            {error && <div className="alert alert-error">{error}</div>}
+
+            <button type="submit" className="btn btn-primary btn-block">
+              Login
+            </button>
+          </form>
         </div>
-        <div style={{ marginBottom: 12 }}>
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{ width: "100%", padding: 8 }}
-            required
-          />
-        </div>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <button type="submit" style={{ width: "100%", padding: 10 }}>
-          Login
-        </button>
-      </form>
+      </div>
     </div>
   );
 }

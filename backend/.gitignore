@@ -3,3 +3,4 @@
 *.db
 venv
 generate_hash.py
+__pycache__

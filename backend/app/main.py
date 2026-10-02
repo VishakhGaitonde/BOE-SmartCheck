@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth
+from app.routers import auth, papers
 from app.auth.dependencies import get_current_user
+from app.database import init_db
 
 app = FastAPI(title="Smart BOE")
 
@@ -15,6 +16,12 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(papers.router)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 
 @app.get("/health")
