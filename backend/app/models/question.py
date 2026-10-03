@@ -11,3 +11,4 @@ class Question(Base):
     question_text = Column(Text, nullable=False)
     marks = Column(Float, nullable=True)
     section = Column(String, nullable=True)
+    co = Column(String, nullable=True)

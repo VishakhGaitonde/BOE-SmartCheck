@@ -18,3 +18,4 @@ class Paper(Base):
     calculated_marks = Column(Float, nullable=True)
     overall_ai_status = Column(String, nullable=True)
     final_boe_status = Column(String, default="PENDING")
+    structure_type = Column(String, default="SECTION_EQUAL")  # "SECTION_EQUAL" or "UNIT_OR"

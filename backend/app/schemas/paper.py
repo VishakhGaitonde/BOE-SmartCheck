@@ -5,7 +5,8 @@ from datetime import datetime
 class PaperCreate(BaseModel):
     course: str | None = None
     paper_name: str
-    pattern: str  # "50" or "100"
+    pattern: str  # total marks as string: "50" or "100"
+    structure_type: str = "SECTION_EQUAL"  # or "UNIT_OR"
 
 
 class PaperOut(BaseModel):
@@ -14,6 +15,7 @@ class PaperOut(BaseModel):
     paper_name: str
     exam_type: str
     pattern: str
+    structure_type: str
     uploaded_at: datetime
     final_boe_status: str
 
@@ -51,6 +53,37 @@ class QuestionOut(BaseModel):
     question_text: str
     marks: float | None
     section: str | None
+    co: str | None
+
+    class Config:
+        from_attributes = True
+
+class SectionResultOut(BaseModel):
+    section: str
+    expected_marks: float
+    actual_marks: float
+    valid: bool
+
+
+class UnitResultOut(BaseModel):
+    unit: str
+    question_number: str
+    expected_marks: float
+    actual_marks: float
+    valid: bool
+
+
+class ValidationResultOut(BaseModel):
+    id: int
+    paper_id: int
+    pattern: str
+    structure_type: str
+    expected_total_marks: float
+    calculated_total_marks: float
+    overall_valid: bool
+    sections: list[SectionResultOut] = []
+    unit_results: list[UnitResultOut] = []
+    issues: list[str]
 
     class Config:
         from_attributes = True
