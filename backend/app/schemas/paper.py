@@ -87,3 +87,17 @@ class ValidationResultOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class EvidenceItemOut(BaseModel):
+    text: str
+    chapter: str | None = None
+    section: str | None = None
+    page: int | None = None
+    distance: float
+
+
+class RetrievalResultOut(BaseModel):
+    question_id: int
+    syllabus_evidence: list[EvidenceItemOut]
+    textbook_evidence: list[EvidenceItemOut]
+    syllabus_match_found: bool

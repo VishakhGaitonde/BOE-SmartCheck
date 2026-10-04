@@ -11,6 +11,10 @@ from app.models.document_chunk import DocumentChunk
 from app.models.question import Question
 from app.models.validation_result import ValidationResult
 
+from app.models.retrieval_result import RetrievalResult
+from app.schemas.paper import RetrievalResultOut, EvidenceItemOut
+from app.retrieval.retriever import retrieve_evidence
+
 from app.schemas.paper import (
     PaperCreate,
     PaperOut,
@@ -386,3 +390,89 @@ def build_knowledge_base(
         "chunks_embedded": len(chunks),
         "status": "knowledge base built successfully",
     }
+
+def _format_evidence(matches: list[dict]) -> list[dict]:
+    formatted = []
+    for m in matches:
+        meta = m["metadata"]
+        formatted.append({
+            "text": m["text"],
+            "chapter": meta.get("chapter") or None,
+            "section": meta.get("section") or None,
+            "page": meta.get("page") if meta.get("page", -1) != -1 else None,
+            "distance": m["distance"],
+        })
+    return formatted
+
+
+@router.post("/{paper_id}/retrieve-evidence", response_model=list[RetrievalResultOut])
+def retrieve_evidence_endpoint(
+    paper_id: int,
+    top_k: int = 5,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found. Run parse-questions first.")
+
+    # Clear any previous retrieval results for this paper (idempotent re-run)
+    db.query(RetrievalResult).filter(RetrievalResult.paper_id == paper_id).delete()
+
+    results = []
+    for q in questions:
+        evidence = retrieve_evidence(paper_id, q.question_text, top_k=top_k)
+
+        syllabus_formatted = _format_evidence(evidence["syllabus_evidence"])
+        textbook_formatted = _format_evidence(evidence["textbook_evidence"])
+
+        retrieval = RetrievalResult(
+            question_id=q.id,
+            paper_id=paper_id,
+            syllabus_evidence_json=json.dumps(syllabus_formatted),
+            textbook_evidence_json=json.dumps(textbook_formatted),
+            syllabus_match_found=evidence["syllabus_match_found"],
+        )
+        db.add(retrieval)
+
+        results.append(RetrievalResultOut(
+            question_id=q.id,
+            syllabus_evidence=[EvidenceItemOut(**e) for e in syllabus_formatted],
+            textbook_evidence=[EvidenceItemOut(**e) for e in textbook_formatted],
+            syllabus_match_found=evidence["syllabus_match_found"],
+        ))
+
+    db.commit()
+    return results
+
+
+@router.get("/{paper_id}/questions/{question_id}/evidence", response_model=RetrievalResultOut)
+def get_question_evidence(
+    paper_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    retrieval = db.query(RetrievalResult).filter(
+        RetrievalResult.paper_id == paper_id,
+        RetrievalResult.question_id == question_id,
+    ).first()
+    if not retrieval:
+        raise HTTPException(
+            status_code=404,
+            detail="No retrieval result found for this question. Run retrieve-evidence first.",
+        )
+
+    syllabus = json.loads(retrieval.syllabus_evidence_json)
+    textbook = json.loads(retrieval.textbook_evidence_json)
+
+    return RetrievalResultOut(
+        question_id=question_id,
+        syllabus_evidence=[EvidenceItemOut(**e) for e in syllabus],
+        textbook_evidence=[EvidenceItemOut(**e) for e in textbook],
+        syllabus_match_found=retrieval.syllabus_match_found,
+    )
