@@ -26,3 +26,25 @@ export const parseQuestions = (paperId, documentId) =>
 
 export const listQuestions = (paperId) =>
   client.get(`/papers/${paperId}/questions`);
+
+export const validateMarks = (paperId) =>
+  client.post(`/papers/${paperId}/validate-marks`);
+
+export const getValidation = (paperId) =>
+  client.get(`/papers/${paperId}/validate-marks`);
+
+export const retrieveEvidence = (paperId, topK = 5) =>
+  client.post(`/papers/${paperId}/retrieve-evidence`, null, {
+    params: { top_k: topK },
+  });
+
+export const getQuestionEvidence = (paperId, questionId) =>
+  client.get(`/papers/${paperId}/questions/${questionId}/evidence`);
+
+export const buildKnowledgeBase = (paperId) =>
+  client.post(`/papers/${paperId}/build-knowledge-base`);
+
+export const retrieveEvidenceForPaper = (paperId, topK = 5) =>
+  client.post(`/papers/${paperId}/retrieve-evidence`, null, {
+    params: { top_k: topK },
+  });

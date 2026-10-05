@@ -7,6 +7,8 @@ import {
   uploadDocument,
   chunkDocument,
   parseQuestions,
+  buildKnowledgeBase,
+  retrieveEvidenceForPaper,
 } from "../api/papers";
 
 const STEPS = { FORM: "FORM", UPLOADING: "UPLOADING", DONE: "DONE" };
@@ -15,6 +17,7 @@ export default function NewVerification() {
   const [courseName, setCourseName] = useState("");
   const [paperName, setPaperName] = useState("");
   const [pattern, setPattern] = useState("100");
+  const [structureType, setStructureType] = useState("UNIT_OR");
 
   const [questionPaperFile, setQuestionPaperFile] = useState(null);
   const [syllabusFile, setSyllabusFile] = useState(null);
@@ -43,6 +46,7 @@ export default function NewVerification() {
         course: courseName || null,
         paper_name: paperName,
         pattern,
+        structure_type: structureType,
       });
       const paperId = paperRes.data.id;
 
@@ -63,6 +67,12 @@ export default function NewVerification() {
 
       setStatusMsg("Parsing question paper...");
       await parseQuestions(paperId, qpDoc.data.id);
+
+      setStatusMsg("Building knowledge base (embedding syllabus + textbook)...");
+      await buildKnowledgeBase(paperId);
+
+      setStatusMsg("Retrieving evidence for each question...");
+      await retrieveEvidenceForPaper(paperId);
 
       setStatusMsg("Done! Redirecting...");
       setStep(STEPS.DONE);
@@ -121,6 +131,22 @@ export default function NewVerification() {
                   <option value="50">50 Marks</option>
                   <option value="100">100 Marks</option>
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Paper Structure</label>
+                <select
+                  className="form-select"
+                  value={structureType}
+                  onChange={(e) => setStructureType(e.target.value)}
+                >
+                  <option value="UNIT_OR">Unit-wise (OR choice per unit)</option>
+                  <option value="SECTION_EQUAL">Section A–E (equal marks)</option>
+                </select>
+                <p className="form-hint">
+                  Choose "Unit-wise" for papers with "Answer one full question from each unit"
+                  style OR choices. Choose "Section A–E" for fixed-section papers.
+                </p>
               </div>
 
               <FileUpload label="Question Paper" file={questionPaperFile} onChange={setQuestionPaperFile} />

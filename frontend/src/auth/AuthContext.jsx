@@ -7,7 +7,14 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
 
   const login = async (username, password) => {
-    const response = await client.post("/auth/login", { username, password });
+    const formData = new URLSearchParams();
+    formData.append("username", username);
+    formData.append("password", password);
+
+    const response = await client.post("/auth/login", formData, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+
     const accessToken = response.data.access_token;
     localStorage.setItem("access_token", accessToken);
     setToken(accessToken);
