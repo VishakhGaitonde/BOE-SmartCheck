@@ -4,3 +4,4 @@
 venv
 generate_hash.py
 __pycache__
+storage
