@@ -75,3 +75,76 @@ def query_similar(paper_id: int, query_embedding: list[float], top_k: int = 5, d
                 "distance": results["distances"][0][i],
             })
     return matches
+
+def get_chunks_metadata(paper_id: int, ids: list[str]) -> dict:
+    """Returns {id: metadata} for the given chunk ids."""
+    collection = get_or_create_collection(paper_id)
+    result = collection.get(ids=ids)
+    return dict(zip(result["ids"], result["metadatas"]))
+
+
+def tag_chunks_with_unit(paper_id: int, chunk_unit_map: dict[str, str]):
+    """
+    chunk_unit_map: {chunk_id: unit_label}
+    Adds/overwrites a 'unit' field on each chunk's existing metadata
+    without losing its other metadata (chapter, section, page, document_type).
+    """
+    if not chunk_unit_map:
+        return
+
+    collection = get_or_create_collection(paper_id)
+    ids = list(chunk_unit_map.keys())
+    existing = collection.get(ids=ids)
+
+    updated_metadatas = []
+    for meta in existing["metadatas"]:
+        pass  # placeholder, real pairing done below
+
+    id_to_meta = dict(zip(existing["ids"], existing["metadatas"]))
+    final_ids = []
+    final_metadatas = []
+    for chunk_id, unit_label in chunk_unit_map.items():
+        meta = dict(id_to_meta.get(chunk_id, {}))
+        meta["unit"] = unit_label
+        final_ids.append(chunk_id)
+        final_metadatas.append(meta)
+
+    collection.update(ids=final_ids, metadatas=final_metadatas)
+
+
+def query_similar_filtered(paper_id: int, query_embedding: list[float], top_k: int = 5,
+                            document_type: str | None = None, unit: str | None = None):
+    """
+    Like query_similar, but can additionally filter by a 'unit' tag
+    (set via tag_chunks_with_unit) to narrow search to a pre-mapped subset.
+    """
+    collection = get_or_create_collection(paper_id)
+
+    conditions = []
+    if document_type:
+        conditions.append({"document_type": document_type})
+    if unit:
+        conditions.append({"unit": unit})
+
+    where = None
+    if len(conditions) == 1:
+        where = conditions[0]
+    elif len(conditions) > 1:
+        where = {"$and": conditions}
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=top_k,
+        where=where,
+    )
+
+    matches = []
+    if results["ids"] and results["ids"][0]:
+        for i in range(len(results["ids"][0])):
+            matches.append({
+                "id": results["ids"][0][i],
+                "text": results["documents"][0][i],
+                "metadata": results["metadatas"][0][i],
+                "distance": results["distances"][0][i],
+            })
+    return matches

@@ -14,6 +14,7 @@ from app.models.validation_result import ValidationResult
 from app.models.retrieval_result import RetrievalResult
 from app.schemas.paper import RetrievalResultOut, EvidenceItemOut
 from app.retrieval.retriever import retrieve_evidence
+from app.retrieval.unit_mapper import build_unit_textbook_map
 
 from app.schemas.paper import (
     PaperCreate,
@@ -34,6 +35,9 @@ from app.processing.qp_parser import parse_question_paper
 from app.validators.marks_validator import validate_marks, validate_unit_or_pattern
 from app.embeddings.embedder import embed_texts
 from app.embeddings.vector_store import add_chunks, delete_collection
+
+from app.models.unit_textbook_map import UnitTextbookMap
+from app.schemas.paper import UnitMapEntryOut
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
@@ -436,6 +440,8 @@ def retrieve_evidence_endpoint(
             syllabus_evidence_json=json.dumps(syllabus_formatted),
             textbook_evidence_json=json.dumps(textbook_formatted),
             syllabus_match_found=evidence["syllabus_match_found"],
+            matched_unit=evidence["matched_unit"],
+            used_narrowed_search=evidence["used_narrowed_search"],
         )
         db.add(retrieval)
 
@@ -444,6 +450,8 @@ def retrieve_evidence_endpoint(
             syllabus_evidence=[EvidenceItemOut(**e) for e in syllabus_formatted],
             textbook_evidence=[EvidenceItemOut(**e) for e in textbook_formatted],
             syllabus_match_found=evidence["syllabus_match_found"],
+            matched_unit=evidence["matched_unit"],
+            used_narrowed_search=evidence["used_narrowed_search"],
         ))
 
     db.commit()
@@ -475,4 +483,59 @@ def get_question_evidence(
         syllabus_evidence=[EvidenceItemOut(**e) for e in syllabus],
         textbook_evidence=[EvidenceItemOut(**e) for e in textbook],
         syllabus_match_found=retrieval.syllabus_match_found,
+        matched_unit=retrieval.matched_unit,
+        used_narrowed_search=retrieval.used_narrowed_search,
     )
+
+@router.post("/{paper_id}/build-unit-textbook-map", response_model=list[UnitMapEntryOut])
+def build_unit_textbook_map_endpoint(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    syllabus_chunks = db.query(DocumentChunk).filter(
+        DocumentChunk.paper_id == paper_id,
+        DocumentChunk.document_type == "syllabus",
+    ).all()
+    if not syllabus_chunks:
+        raise HTTPException(status_code=400, detail="No syllabus chunks found. Chunk and build knowledge base first.")
+
+    chunks_by_unit: dict[str, list[str]] = {}
+    for c in syllabus_chunks:
+        unit_label = c.chapter or "UNASSIGNED"
+        chunks_by_unit.setdefault(unit_label, []).append(c.text)
+
+    chunks_by_unit.pop("UNASSIGNED", None)
+
+    if not chunks_by_unit:
+        raise HTTPException(
+            status_code=400,
+            detail="No unit/chapter headings were detected in the syllabus. Cannot build unit map.",
+        )
+
+    syllabus_text_by_unit = {
+        unit: "\n".join(texts) for unit, texts in chunks_by_unit.items()
+    }
+
+    unit_results = build_unit_textbook_map(paper_id, syllabus_text_by_unit)
+
+    db.query(UnitTextbookMap).filter(UnitTextbookMap.paper_id == paper_id).delete()
+    for unit_label, matches in unit_results.items():
+        for m in matches:
+            db.add(UnitTextbookMap(
+                paper_id=paper_id,
+                unit_label=unit_label,
+                chunk_id=m["chunk_id"],
+                distance=m["distance"],
+                page=m["page"],
+            ))
+    db.commit()
+
+    return [
+        UnitMapEntryOut(unit_label=unit, chunks_mapped=len(matches))
+        for unit, matches in unit_results.items()
+    ]

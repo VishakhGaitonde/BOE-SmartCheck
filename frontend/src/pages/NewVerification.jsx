@@ -8,6 +8,7 @@ import {
   chunkDocument,
   parseQuestions,
   buildKnowledgeBase,
+  buildUnitTextbookMap,
   retrieveEvidenceForPaper,
 } from "../api/papers";
 
@@ -70,6 +71,9 @@ export default function NewVerification() {
 
       setStatusMsg("Building knowledge base (embedding syllabus + textbook)...");
       await buildKnowledgeBase(paperId);
+
+      setStatusMsg("Mapping syllabus units to textbook chapters...");
+      await buildUnitTextbookMap(paperId);
 
       setStatusMsg("Retrieving evidence for each question...");
       await retrieveEvidenceForPaper(paperId);

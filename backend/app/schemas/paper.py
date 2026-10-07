@@ -101,3 +101,10 @@ class RetrievalResultOut(BaseModel):
     syllabus_evidence: list[EvidenceItemOut]
     textbook_evidence: list[EvidenceItemOut]
     syllabus_match_found: bool
+    matched_unit: str | None = None
+    used_narrowed_search: bool = False
+
+
+class UnitMapEntryOut(BaseModel):
+    unit_label: str
+    chunks_mapped: int

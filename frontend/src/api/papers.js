@@ -48,3 +48,6 @@ export const retrieveEvidenceForPaper = (paperId, topK = 5) =>
   client.post(`/papers/${paperId}/retrieve-evidence`, null, {
     params: { top_k: topK },
   });
+
+export const buildUnitTextbookMap = (paperId) =>
+  client.post(`/papers/${paperId}/build-unit-textbook-map`);

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, ForeignKey, Text, Boolean, String
 from app.database import Base
 
 
@@ -11,3 +11,5 @@ class RetrievalResult(Base):
     syllabus_evidence_json = Column(Text, nullable=False)
     textbook_evidence_json = Column(Text, nullable=False)
     syllabus_match_found = Column(Boolean, default=False)
+    matched_unit = Column(String, nullable=True)
+    used_narrowed_search = Column(Boolean, default=False)
