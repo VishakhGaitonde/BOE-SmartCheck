@@ -10,6 +10,7 @@ import {
   buildKnowledgeBase,
   buildUnitTextbookMap,
   retrieveEvidenceForPaper,
+  verifyQuestions,
 } from "../api/papers";
 
 const STEPS = { FORM: "FORM", UPLOADING: "UPLOADING", DONE: "DONE" };
@@ -78,7 +79,21 @@ export default function NewVerification() {
       setStatusMsg("Retrieving evidence for each question...");
       await retrieveEvidenceForPaper(paperId);
 
-      setStatusMsg("Done! Redirecting...");
+      setStatusMsg("Retrieving evidence for each question...");
+      await retrieveEvidenceForPaper(paperId);
+
+      setStatusMsg("Verifying questions against syllabus & textbook (this may take a minute)...");
+      const verifyRes = await verifyQuestions(paperId);
+
+      if (verifyRes.data.stopped_due_to_quota) {
+        setStatusMsg(
+          `Done — but LLM quota ran out partway (${verifyRes.data.newly_verified}/${verifyRes.data.total_questions} verified). ` +
+          `You can resume later from the Paper Summary page. Redirecting...`
+        );
+      } else {
+        setStatusMsg("Done! Redirecting...");
+      }
+
       setStep(STEPS.DONE);
       setTimeout(() => navigate(`/papers/${paperId}`), 800);
     } catch (err) {

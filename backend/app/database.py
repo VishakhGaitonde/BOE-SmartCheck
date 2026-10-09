@@ -23,5 +23,6 @@ def init_db():
     from app.models import (
         paper, document, document_chunk, question,
         validation_result, retrieval_result, unit_textbook_map,
+        verification_result,
     )  # noqa: F401
     Base.metadata.create_all(bind=engine)

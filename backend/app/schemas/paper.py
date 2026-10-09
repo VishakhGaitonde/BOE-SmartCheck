@@ -108,3 +108,23 @@ class RetrievalResultOut(BaseModel):
 class UnitMapEntryOut(BaseModel):
     unit_label: str
     chunks_mapped: int
+
+class VerificationResultOut(BaseModel):
+    question_id: int
+    syllabus_match: bool
+    syllabus_topic: str | None
+    textbook_match: bool
+    textbook_reference: str | None
+    ai_status: str
+    explanation: str
+
+    class Config:
+        from_attributes = True
+
+class VerifyQuestionsResponse(BaseModel):
+    results: list[VerificationResultOut]
+    total_questions: int
+    already_verified_skipped: int
+    newly_verified: int
+    stopped_due_to_quota: bool
+    message: str

@@ -27,6 +27,14 @@ from app.schemas.paper import (
     UnitResultOut,
 )
 
+import time
+
+from app.models.verification_result import VerificationResult
+from app.schemas.paper import VerificationResultOut
+from app.llm.gemini_client import GeminiRateLimitError
+from app.schemas.paper import VerifyQuestionsResponse
+from app.agents.syllabus_textbook_agent import verify_question
+
 from app.utils.file_utils import validate_file, safe_save
 from app.processing.extraction import extract_text
 from app.processing.cleaning import clean_text
@@ -539,3 +547,160 @@ def build_unit_textbook_map_endpoint(
         UnitMapEntryOut(unit_label=unit, chunks_mapped=len(matches))
         for unit, matches in unit_results.items()
     ]
+
+
+PROACTIVE_DELAY_SECONDS = 12.0  # matches free-tier ~5 RPM spacing
+
+
+@router.post("/{paper_id}/verify-questions", response_model=VerifyQuestionsResponse)
+def verify_questions_endpoint(
+    paper_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Runs LLM verification for each question. By default, SKIPS questions that
+    already have a stored VerificationResult — so a retry after hitting a
+    quota limit only spends calls on questions that haven't succeeded yet.
+    Pass force=true to wipe and re-verify everything from scratch.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found. Run parse-questions first.")
+
+    retrievals = {
+        r.question_id: r
+        for r in db.query(RetrievalResult).filter(RetrievalResult.paper_id == paper_id).all()
+    }
+    if not retrievals:
+        raise HTTPException(status_code=400, detail="No retrieval results found. Run retrieve-evidence first.")
+
+    all_existing = db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
+    existing_results = {v.question_id: v for v in all_existing if not v.llm_call_failed}
+    failed_placeholder_ids = {v.question_id for v in all_existing if v.llm_call_failed}
+
+    # Clean up old failure placeholders so they get freshly re-verified, not
+    # treated as duplicates when we insert a new result for the same question.
+    if failed_placeholder_ids:
+        db.query(VerificationResult).filter(
+            VerificationResult.paper_id == paper_id,
+            VerificationResult.question_id.in_(failed_placeholder_ids),
+        ).delete(synchronize_session=False)
+        db.commit()
+
+    if force:
+        db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).delete()
+        db.commit()
+        existing_results = {}
+
+    skipped_count = 0
+    newly_verified_count = 0
+    stopped_due_to_quota = False
+    quota_message = ""
+
+    to_process = []
+    for q in questions:
+        if q.id in existing_results:
+            skipped_count += 1
+        else:
+            to_process.append(q)
+
+    for idx, q in enumerate(to_process):
+        retrieval = retrievals.get(q.id)
+        syllabus_evidence = json.loads(retrieval.syllabus_evidence_json) if retrieval else []
+        textbook_evidence = json.loads(retrieval.textbook_evidence_json) if retrieval else []
+
+        try:
+            verdict = verify_question(q.question_text, syllabus_evidence, textbook_evidence)
+        except GeminiRateLimitError as e:
+            stopped_due_to_quota = True
+            retry_info = f" Retry after ~{int(e.retry_after_seconds)}s." if e.retry_after_seconds else ""
+            quota_message = (
+                f"Daily LLM quota exhausted after verifying {newly_verified_count} new question(s) "
+                f"this run.{retry_info} Run verify-questions again later (without force) to continue "
+                f"from where it left off."
+            )
+            break
+
+        vr = VerificationResult(
+            question_id=q.id,
+            paper_id=paper_id,
+            syllabus_match=verdict["syllabus_match"],
+            syllabus_topic=verdict["syllabus_topic"],
+            textbook_match=verdict["textbook_match"],
+            textbook_reference=verdict["textbook_reference"],
+            ai_status=verdict["status"],
+            explanation=verdict["explanation"],
+            llm_call_failed=verdict.get("llm_call_failed", False),
+        )
+        db.add(vr)
+        db.commit()  # commit incrementally so progress survives a later quota stop
+        newly_verified_count += 1
+
+        if idx < len(to_process) - 1:
+            time.sleep(PROACTIVE_DELAY_SECONDS)
+
+    all_results = db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
+
+    status_counts = {"SUPPORTED": 0, "POTENTIALLY_UNRELATED": 0, "REQUIRES_REVIEW": 0}
+    for r in all_results:
+        status_counts[r.ai_status] = status_counts.get(r.ai_status, 0) + 1
+
+    if len(all_results) < len(questions):
+        paper.overall_ai_status = "VERIFICATION_INCOMPLETE"
+    elif status_counts["POTENTIALLY_UNRELATED"] > 0 or status_counts["REQUIRES_REVIEW"] > 0:
+        paper.overall_ai_status = "REQUIRES_BOE_REVIEW"
+    else:
+        paper.overall_ai_status = "SUPPORTED"
+    db.commit()
+
+    if not quota_message:
+        quota_message = f"Verified {newly_verified_count} question(s); {skipped_count} already had results."
+
+    return VerifyQuestionsResponse(
+        results=[VerificationResultOut.model_validate(r) for r in all_results],
+        total_questions=len(questions),
+        already_verified_skipped=skipped_count,
+        newly_verified=newly_verified_count,
+        stopped_due_to_quota=stopped_due_to_quota,
+        message=quota_message,
+    )
+
+
+@router.get("/{paper_id}/verifications", response_model=list[VerificationResultOut])
+def list_verifications(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    return db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
+
+
+@router.get("/{paper_id}/questions/{question_id}/verification", response_model=VerificationResultOut)
+def get_question_verification(
+    paper_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    vr = db.query(VerificationResult).filter(
+        VerificationResult.paper_id == paper_id,
+        VerificationResult.question_id == question_id,
+    ).first()
+    if not vr:
+        raise HTTPException(status_code=404, detail="No verification result found. Run verify-questions first.")
+
+    return VerificationResultOut(
+        question_id=vr.question_id,
+        syllabus_match=vr.syllabus_match,
+        syllabus_topic=vr.syllabus_topic,
+        textbook_match=vr.textbook_match,
+        textbook_reference=vr.textbook_reference,
+        ai_status=vr.ai_status,
+        explanation=vr.explanation,
+    )

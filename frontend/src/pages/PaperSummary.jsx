@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getPaper, listDocuments, listQuestions, getValidation, validateMarks } from "../api/papers";
+import {
+  getPaper,
+  listDocuments,
+  listQuestions,
+  getValidation,
+  validateMarks,
+  verifyQuestions,
+  listVerifications,
+} from "../api/papers";
 import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
 import StatBox from "../components/StatBox";
@@ -13,17 +21,27 @@ export default function PaperSummary() {
   const [validation, setValidation] = useState(null);
   const [validationError, setValidationError] = useState("");
 
+  const [verifications, setVerifications] = useState([]);
+  const [verifyStatus, setVerifyStatus] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
   useEffect(() => {
     getPaper(paperId).then((res) => setPaper(res.data));
     listDocuments(paperId).then((res) => setDocuments(res.data));
     listQuestions(paperId).then((res) => setQuestions(res.data));
     loadValidation();
+    loadVerifications();
   }, [paperId]);
 
   const loadValidation = () => {
     getValidation(paperId)
       .then((res) => setValidation(res.data))
       .catch(() => setValidation(null));
+  };
+
+  const loadVerifications = () => {
+    listVerifications(paperId).then((res) => setVerifications(res.data));
   };
 
   const runValidation = async () => {
@@ -33,6 +51,21 @@ export default function PaperSummary() {
       setValidationError("");
     } catch (err) {
       setValidationError(err.response?.data?.detail || "Validation failed.");
+    }
+  };
+
+  const runVerification = async () => {
+    setVerifying(true);
+    setVerifyError("");
+    setVerifyStatus("");
+    try {
+      const res = await verifyQuestions(paperId, false);
+      setVerifyStatus(res.data.message);
+      loadVerifications();
+    } catch (err) {
+      setVerifyError(err.response?.data?.detail || "Verification failed.");
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -70,6 +103,40 @@ export default function PaperSummary() {
           <Link to={`/papers/${paperId}/questions`}>
             <button className="btn btn-primary">View Question-wise Verification →</button>
           </Link>
+        </div>
+
+        {/* ---------- AI Verification ---------- */}
+        <h3 className="section-heading">AI Verification</h3>
+        <div className="card">
+          <div className="stat-grid">
+            <StatBox value={questions.length} label="Total Questions" />
+            <StatBox
+              value={verifications.filter((v) => v.ai_status === "SUPPORTED").length}
+              label="Supported"
+            />
+            <StatBox
+              value={verifications.filter((v) => v.ai_status === "REQUIRES_REVIEW").length}
+              label="Requires Review"
+            />
+            <StatBox
+              value={verifications.filter((v) => v.ai_status === "POTENTIALLY_UNRELATED").length}
+              label="Unrelated"
+            />
+          </div>
+
+          {verifications.length < questions.length && (
+            <div className="alert alert-error" style={{ marginBottom: 12 }}>
+              {verifications.length} of {questions.length} questions verified so far
+              {verifications.length > 0 ? " — likely stopped due to LLM quota." : "."}
+            </div>
+          )}
+
+          <button className="btn btn-secondary btn-sm" onClick={runVerification} disabled={verifying}>
+            {verifying ? "Verifying..." : "Resume / Continue Verification"}
+          </button>
+
+          {verifyStatus && <div className="alert alert-success" style={{ marginTop: 12 }}>{verifyStatus}</div>}
+          {verifyError && <div className="alert alert-error" style={{ marginTop: 12 }}>{verifyError}</div>}
         </div>
 
         {/* ---------- Marks Validation ---------- */}

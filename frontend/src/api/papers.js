@@ -51,3 +51,12 @@ export const retrieveEvidenceForPaper = (paperId, topK = 5) =>
 
 export const buildUnitTextbookMap = (paperId) =>
   client.post(`/papers/${paperId}/build-unit-textbook-map`);
+
+export const getQuestionVerification = (paperId, questionId) =>
+  client.get(`/papers/${paperId}/questions/${questionId}/verification`);
+
+export const verifyQuestions = (paperId, force = false) =>
+  client.post(`/papers/${paperId}/verify-questions`, null, { params: { force } });
+
+export const listVerifications = (paperId) =>
+  client.get(`/papers/${paperId}/verifications`);
