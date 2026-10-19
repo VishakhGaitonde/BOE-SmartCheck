@@ -49,6 +49,7 @@ export default function QuestionWiseVerification() {
                   <th>Section</th>
                   <th>CO</th>
                   <th>Bloom</th>
+                  <th>CO Alignment</th>
                   <th>Question</th>
                   <th>Marks</th>
                   <th>AI Status</th>
@@ -68,9 +69,10 @@ export default function QuestionWiseVerification() {
                       <td>{q.section || "-"}</td>
                       <td>{q.co || "-"}</td>
                       <td>{cb ? cb.bloom_level : "-"}</td>
+                      <td>{cb ? <StatusBadge status={cb.co_alignment} /> : <StatusBadge status="PENDING" />}</td>
                       <td>
-                        {q.question_text.slice(0, 80)}
-                        {q.question_text.length > 80 ? "..." : ""}
+                        {q.question_text.slice(0, 70)}
+                        {q.question_text.length > 70 ? "..." : ""}
                       </td>
                       <td>{q.marks ?? "-"}</td>
                       <td>{v ? <StatusBadge status={v.ai_status} /> : <StatusBadge status="PENDING" />}</td>

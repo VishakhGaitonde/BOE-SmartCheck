@@ -13,6 +13,9 @@ from app.models.document_chunk import DocumentChunk
 from app.models.question import Question
 from app.models.validation_result import ValidationResult
 
+from app.agents.combined_agent import verify_and_analyze
+from app.schemas.paper import CombinedAnalysisResponse
+
 from app.models.retrieval_result import RetrievalResult
 from app.schemas.paper import RetrievalResultOut, EvidenceItemOut
 from app.retrieval.retriever import retrieve_evidence
@@ -124,8 +127,6 @@ async def upload_document(
     filepath = safe_save(file_bytes, file.filename, paper_id)
     raw_text, was_ocr, pages = extract_text(filepath)
     cleaned = clean_text(raw_text)
-    if document_type == "syllabus":
-        cleaned = clean_syllabus_text(cleaned)
 
     document = Document(
         paper_id=paper_id,
@@ -167,7 +168,13 @@ def chunk_document_endpoint(
         raise HTTPException(status_code=400, detail="Only syllabus/textbook documents can be chunked")
 
     pages = json.loads(doc.pages_json) if doc.pages_json else None
-    chunk_dicts = chunk_document(pages, doc.extracted_text or "")
+    text_for_chunking = doc.extracted_text or ""
+    if doc.document_type == "syllabus":
+        text_for_chunking = clean_syllabus_text(text_for_chunking)
+        if pages:
+            pages = [clean_syllabus_text(p) for p in pages]
+
+    chunk_dicts = chunk_document(pages, text_for_chunking)
 
     db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete()
 
@@ -242,7 +249,10 @@ def parse_questions_endpoint(
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if paper:
         paper.total_questions = len(question_objs)
-        paper.calculated_marks = sum(q["marks"] or 0 for q in parsed)
+        # calculated_marks intentionally NOT set here — naive summing
+        # double-counts UNIT_OR papers (both OR alternatives). validate-marks
+        # computes it correctly and now runs automatically right after this
+        # step in the one-shot pipeline.
         db.commit()
 
     for q in question_objs:
@@ -817,3 +827,89 @@ def list_co_bloom_results(
     current_user: str = Depends(get_current_user),
 ):
     return db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
+
+@router.post("/{paper_id}/verify-and-analyze", response_model=CombinedAnalysisResponse)
+def verify_and_analyze_endpoint(
+    paper_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Combined Phase 10 + Phase 11 in ONE Gemini call per question (instead of
+    two separate calls) — halves total LLM calls and processing time.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found.")
+
+    retrievals = {r.question_id: r for r in db.query(RetrievalResult).filter(RetrievalResult.paper_id == paper_id).all()}
+    if not retrievals:
+        raise HTTPException(status_code=400, detail="No retrieval results found.")
+
+    from app.processing.co_extractor import extract_course_outcomes
+    syllabus_doc = db.query(Document).filter(Document.paper_id == paper_id, Document.document_type == "syllabus").first()
+    co_text_by_code = extract_course_outcomes(syllabus_doc.extracted_text or "") if syllabus_doc else {}
+
+    if force:
+        db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).delete()
+        db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).delete()
+        db.commit()
+
+    done_vr = {v.question_id for v in db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id, VerificationResult.llm_call_failed == False).all()}
+    done_cb = {c.question_id for c in db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id, CoBloomResult.llm_call_failed == False).all()}
+    already_done = done_vr & done_cb
+
+    to_process = [q for q in questions if q.id not in already_done]
+    skipped = len(questions) - len(to_process)
+    newly_processed = 0
+    stopped_due_to_quota = False
+    quota_message = ""
+
+    for idx, q in enumerate(to_process):
+        retrieval = retrievals.get(q.id)
+        syllabus_evidence = json.loads(retrieval.syllabus_evidence_json) if retrieval else []
+        textbook_evidence = json.loads(retrieval.textbook_evidence_json) if retrieval else []
+        co_text = co_text_by_code.get(q.co)
+
+        try:
+            result = verify_and_analyze(q.question_text, q.co, co_text, syllabus_evidence, textbook_evidence)
+        except GeminiRateLimitError as e:
+            stopped_due_to_quota = True
+            quota_message = f"Daily LLM quota exhausted after {newly_processed} question(s). Resume later."
+            break
+
+        db.query(VerificationResult).filter(VerificationResult.question_id == q.id).delete()
+        db.query(CoBloomResult).filter(CoBloomResult.question_id == q.id).delete()
+
+        db.add(VerificationResult(
+            question_id=q.id, paper_id=paper_id,
+            syllabus_match=result["syllabus_match"], syllabus_topic=result["syllabus_topic"],
+            textbook_match=result["textbook_match"], textbook_reference=result["textbook_reference"],
+            ai_status=result["status"], explanation=result["explanation"],
+            llm_call_failed=result["llm_call_failed"],
+        ))
+        db.add(CoBloomResult(
+            question_id=q.id, paper_id=paper_id,
+            bloom_level=result["bloom_level"], co_code=q.co,
+            co_alignment=result["co_alignment"], explanation=result["co_bloom_explanation"],
+            llm_call_failed=result["llm_call_failed"],
+        ))
+        db.commit()
+        newly_processed += 1
+
+        if idx < len(to_process) - 1:
+            time.sleep(PROACTIVE_DELAY_SECONDS)
+
+    if not quota_message:
+        quota_message = f"Processed {newly_processed} question(s); {skipped} already had results."
+
+    return CombinedAnalysisResponse(
+        total_questions=len(questions), already_done_skipped=skipped,
+        newly_processed=newly_processed, stopped_due_to_quota=stopped_due_to_quota,
+        message=quota_message,
+    )

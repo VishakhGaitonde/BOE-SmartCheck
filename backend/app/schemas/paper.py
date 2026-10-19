@@ -17,11 +17,14 @@ class PaperOut(BaseModel):
     pattern: str
     structure_type: str
     uploaded_at: datetime
+    total_questions: int | None = None
+    expected_marks: float | None = None
+    calculated_marks: float | None = None
+    overall_ai_status: str | None = None
     final_boe_status: str
 
     class Config:
         from_attributes = True
-
 
 class DocumentOut(BaseModel):
     id: int
@@ -146,5 +149,12 @@ class AnalyzeCoBloomResponse(BaseModel):
     total_questions: int
     already_analyzed_skipped: int
     newly_analyzed: int
+    stopped_due_to_quota: bool
+    message: str
+
+class CombinedAnalysisResponse(BaseModel):
+    total_questions: int
+    already_done_skipped: int
+    newly_processed: int
     stopped_due_to_quota: bool
     message: str

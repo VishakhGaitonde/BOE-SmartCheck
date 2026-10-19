@@ -11,7 +11,7 @@ MODEL_NAME = "gemini-flash-lite-latest"
 
 # Free tier is commonly 5 requests/minute — space calls out proactively
 # to avoid reactively hitting 429s on every other question.
-PROACTIVE_DELAY_SECONDS = 5.0
+PROACTIVE_DELAY_SECONDS = 3.0
 
 
 class GeminiRateLimitError(Exception):

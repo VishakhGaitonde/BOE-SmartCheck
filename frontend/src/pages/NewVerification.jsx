@@ -7,10 +7,11 @@ import {
   uploadDocument,
   chunkDocument,
   parseQuestions,
+  validateMarks,
   buildKnowledgeBase,
   buildUnitTextbookMap,
   retrieveEvidenceForPaper,
-  verifyQuestions,
+  verifyAndAnalyze,
 } from "../api/papers";
 
 const STEPS = { FORM: "FORM", UPLOADING: "UPLOADING", DONE: "DONE" };
@@ -70,6 +71,9 @@ export default function NewVerification() {
       setStatusMsg("Parsing question paper...");
       await parseQuestions(paperId, qpDoc.data.id);
 
+      setStatusMsg("Validating marks and sections...");
+      await validateMarks(paperId);
+
       setStatusMsg("Building knowledge base (embedding syllabus + textbook)...");
       await buildKnowledgeBase(paperId);
 
@@ -79,15 +83,12 @@ export default function NewVerification() {
       setStatusMsg("Retrieving evidence for each question...");
       await retrieveEvidenceForPaper(paperId);
 
-      setStatusMsg("Retrieving evidence for each question...");
-      await retrieveEvidenceForPaper(paperId);
+      setStatusMsg("Verifying questions and analyzing CO/Bloom (combined, faster)...");
+      const combinedRes = await verifyAndAnalyze(paperId);
 
-      setStatusMsg("Verifying questions against syllabus & textbook (this may take a minute)...");
-      const verifyRes = await verifyQuestions(paperId);
-
-      if (verifyRes.data.stopped_due_to_quota) {
+      if (combinedRes.data.stopped_due_to_quota) {
         setStatusMsg(
-          `Done — but LLM quota ran out partway (${verifyRes.data.newly_verified}/${verifyRes.data.total_questions} verified). ` +
+          `Done — but LLM quota ran out partway (${combinedRes.data.newly_processed}/${combinedRes.data.total_questions} processed). ` +
           `You can resume later from the Paper Summary page. Redirecting...`
         );
       } else {

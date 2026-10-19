@@ -66,3 +66,6 @@ export const analyzeCoBloom = (paperId) =>
 
 export const listCoBloomResults = (paperId) =>
   client.get(`/papers/${paperId}/co-bloom-results`);
+
+export const verifyAndAnalyze = (paperId, force = false) =>
+  client.post(`/papers/${paperId}/verify-and-analyze`, null, { params: { force } });
