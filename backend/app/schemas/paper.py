@@ -94,6 +94,7 @@ class EvidenceItemOut(BaseModel):
     section: str | None = None
     page: int | None = None
     distance: float
+    rerank_score: float | None = None
 
 
 class RetrievalResultOut(BaseModel):
@@ -126,5 +127,24 @@ class VerifyQuestionsResponse(BaseModel):
     total_questions: int
     already_verified_skipped: int
     newly_verified: int
+    stopped_due_to_quota: bool
+    message: str
+
+class CoBloomResultOut(BaseModel):
+    question_id: int
+    bloom_level: str
+    co_code: str | None
+    co_alignment: str
+    explanation: str
+
+    class Config:
+        from_attributes = True
+
+
+class AnalyzeCoBloomResponse(BaseModel):
+    results: list[CoBloomResultOut]
+    total_questions: int
+    already_analyzed_skipped: int
+    newly_analyzed: int
     stopped_due_to_quota: bool
     message: str

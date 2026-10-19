@@ -7,7 +7,9 @@ PROMPT_TEMPLATE = """You are assisting a Board of Examinations (BOE) in verifyin
 STRICT RULES:
 - Use ONLY the SYLLABUS EVIDENCE and TEXTBOOK EVIDENCE provided below to make your decision.
 - Do NOT use your own general knowledge of the subject to decide whether the question belongs to the course — the evidence below is the only source of truth.
-- If the evidence is weak, incomplete, or ambiguous, choose REQUIRES_REVIEW rather than guessing either way.
+- Judge support at the TOPIC level, not by requiring an exact phrase-for-phrase match. If the evidence substantively covers the concept the question asks about — even using different wording, a broader passage, or a related example — treat it as supporting evidence. A partial or indirect but genuinely relevant connection should lean toward SUPPORTED, not REQUIRES_REVIEW.
+- Reserve REQUIRES_REVIEW for cases where the evidence is genuinely thin, tangential, or you cannot find the specific concept addressed at all — not merely because the wording differs from the question.
+- Reserve POTENTIALLY_UNRELATED for cases where the evidence shows no meaningful connection to the question's topic whatsoever.
 - Respond with STRICT JSON ONLY — no markdown, no code fences, no extra commentary — matching exactly this schema:
 
 {{

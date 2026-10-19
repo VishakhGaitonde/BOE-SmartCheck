@@ -8,6 +8,8 @@ import {
   validateMarks,
   verifyQuestions,
   listVerifications,
+  analyzeCoBloom,
+  listCoBloomResults,
 } from "../api/papers";
 import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
@@ -26,12 +28,18 @@ export default function PaperSummary() {
   const [verifyError, setVerifyError] = useState("");
   const [verifying, setVerifying] = useState(false);
 
+  const [coBloomResults, setCoBloomResults] = useState([]);
+  const [coBloomStatus, setCoBloomStatus] = useState("");
+  const [coBloomError, setCoBloomError] = useState("");
+  const [analyzingCoBloom, setAnalyzingCoBloom] = useState(false);
+
   useEffect(() => {
     getPaper(paperId).then((res) => setPaper(res.data));
     listDocuments(paperId).then((res) => setDocuments(res.data));
     listQuestions(paperId).then((res) => setQuestions(res.data));
     loadValidation();
     loadVerifications();
+    loadCoBloom();
   }, [paperId]);
 
   const loadValidation = () => {
@@ -42,6 +50,10 @@ export default function PaperSummary() {
 
   const loadVerifications = () => {
     listVerifications(paperId).then((res) => setVerifications(res.data));
+  };
+
+  const loadCoBloom = () => {
+    listCoBloomResults(paperId).then((res) => setCoBloomResults(res.data));
   };
 
   const runValidation = async () => {
@@ -66,6 +78,21 @@ export default function PaperSummary() {
       setVerifyError(err.response?.data?.detail || "Verification failed.");
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const runCoBloomAnalysis = async () => {
+    setAnalyzingCoBloom(true);
+    setCoBloomError("");
+    setCoBloomStatus("");
+    try {
+      const res = await analyzeCoBloom(paperId);
+      setCoBloomStatus(res.data.message);
+      loadCoBloom();
+    } catch (err) {
+      setCoBloomError(err.response?.data?.detail || "CO/Bloom analysis failed.");
+    } finally {
+      setAnalyzingCoBloom(false);
     }
   };
 
@@ -137,6 +164,39 @@ export default function PaperSummary() {
 
           {verifyStatus && <div className="alert alert-success" style={{ marginTop: 12 }}>{verifyStatus}</div>}
           {verifyError && <div className="alert alert-error" style={{ marginTop: 12 }}>{verifyError}</div>}
+        </div>
+
+        {/* ---------- CO & Bloom's Taxonomy ---------- */}
+        <h3 className="section-heading">CO & Bloom's Taxonomy Analysis</h3>
+        <div className="card">
+          <div className="stat-grid">
+            <StatBox value={coBloomResults.length} label="Analyzed" />
+            <StatBox
+              value={coBloomResults.filter((c) => c.co_alignment === "ALIGNED").length}
+              label="Aligned"
+            />
+            <StatBox
+              value={coBloomResults.filter((c) => c.co_alignment === "POTENTIAL_MISMATCH").length}
+              label="Potential Mismatch"
+            />
+            <StatBox
+              value={coBloomResults.filter((c) => c.co_alignment === "UNCERTAIN").length}
+              label="Uncertain"
+            />
+          </div>
+
+          {coBloomResults.length < questions.length && (
+            <div className="alert alert-error" style={{ marginBottom: 12 }}>
+              {coBloomResults.length} of {questions.length} questions analyzed so far.
+            </div>
+          )}
+
+          <button className="btn btn-secondary btn-sm" onClick={runCoBloomAnalysis} disabled={analyzingCoBloom}>
+            {analyzingCoBloom ? "Analyzing..." : "Resume / Continue CO-Bloom Analysis"}
+          </button>
+
+          {coBloomStatus && <div className="alert alert-success" style={{ marginTop: 12 }}>{coBloomStatus}</div>}
+          {coBloomError && <div className="alert alert-error" style={{ marginTop: 12 }}>{coBloomError}</div>}
         </div>
 
         {/* ---------- Marks Validation ---------- */}

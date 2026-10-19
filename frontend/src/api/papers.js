@@ -60,3 +60,9 @@ export const verifyQuestions = (paperId, force = false) =>
 
 export const listVerifications = (paperId) =>
   client.get(`/papers/${paperId}/verifications`);
+
+export const analyzeCoBloom = (paperId) =>
+  client.post(`/papers/${paperId}/analyze-co-bloom`);
+
+export const listCoBloomResults = (paperId) =>
+  client.get(`/papers/${paperId}/co-bloom-results`);

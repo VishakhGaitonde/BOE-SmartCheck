@@ -21,7 +21,11 @@ def get_collection_name(paper_id: int) -> str:
 
 def get_or_create_collection(paper_id: int):
     client = get_client()
-    return client.get_or_create_collection(name=get_collection_name(paper_id))
+    return client.get_or_create_collection(
+        name=get_collection_name(paper_id),
+        metadata={"hnsw:space": "cosine"},  # explicit cosine distance, not default L2 —
+                                              # correct metric for normalized embeddings
+    )
 
 
 def delete_collection(paper_id: int):

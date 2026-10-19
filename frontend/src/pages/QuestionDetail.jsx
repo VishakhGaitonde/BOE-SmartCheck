@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { listQuestions, getQuestionEvidence, getQuestionVerification } from "../api/papers";
+import { listQuestions, getQuestionEvidence, getQuestionVerification, listCoBloomResults } from "../api/papers";
 import Navbar from "../components/Navbar";
 import EvidenceList from "../components/EvidenceList";
 import StatusBadge from "../components/StatusBadge";
@@ -10,6 +10,7 @@ export default function QuestionDetail() {
   const [question, setQuestion] = useState(null);
   const [evidence, setEvidence] = useState(null);
   const [verification, setVerification] = useState(null);
+  const [coBloom, setCoBloom] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -17,6 +18,11 @@ export default function QuestionDetail() {
     listQuestions(paperId).then((res) => {
       const q = res.data.find((item) => item.id === Number(questionId));
       setQuestion(q);
+    });
+
+    listCoBloomResults(paperId).then((res) => {
+      const match = res.data.find((c) => c.question_id === Number(questionId));
+      setCoBloom(match || null);
     });
 
     getQuestionEvidence(paperId, questionId)
@@ -78,6 +84,18 @@ export default function QuestionDetail() {
               </p>
             )}
             <p style={{ fontSize: 14, marginTop: 10, lineHeight: 1.5 }}>{verification.explanation}</p>
+          </div>
+        )}
+
+        {coBloom && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="evidence-block-title">CO & Bloom's Taxonomy Analysis</div>
+            <div style={{ display: "flex", gap: 24, marginBottom: 10, flexWrap: "wrap", fontSize: 13 }}>
+              <div><strong>Bloom's Level:</strong> {coBloom.bloom_level}</div>
+              <div><strong>CO:</strong> {coBloom.co_code || "-"}</div>
+              <div><strong>Alignment:</strong> <StatusBadge status={coBloom.co_alignment} /></div>
+            </div>
+            <p style={{ fontSize: 14, marginTop: 6, lineHeight: 1.5 }}>{coBloom.explanation}</p>
           </div>
         )}
 

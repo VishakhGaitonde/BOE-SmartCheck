@@ -23,6 +23,6 @@ def init_db():
     from app.models import (
         paper, document, document_chunk, question,
         validation_result, retrieval_result, unit_textbook_map,
-        verification_result,
-    )  # noqa: F401
+        verification_result, co_bloom_result,
+    )
     Base.metadata.create_all(bind=engine)

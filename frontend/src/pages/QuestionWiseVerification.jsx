@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { listQuestions, listVerifications } from "../api/papers";
+import { listQuestions, listVerifications, listCoBloomResults } from "../api/papers";
 import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
 
@@ -8,16 +8,20 @@ export default function QuestionWiseVerification() {
   const { paperId } = useParams();
   const [questions, setQuestions] = useState([]);
   const [verificationsByQId, setVerificationsByQId] = useState({});
+  const [coBloomByQId, setCoBloomByQId] = useState({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    Promise.all([listQuestions(paperId), listVerifications(paperId)])
-      .then(([qRes, vRes]) => {
+    Promise.all([listQuestions(paperId), listVerifications(paperId), listCoBloomResults(paperId)])
+      .then(([qRes, vRes, cbRes]) => {
         setQuestions(qRes.data);
         const map = {};
         vRes.data.forEach((v) => { map[v.question_id] = v; });
         setVerificationsByQId(map);
+        const cbMap = {};
+        cbRes.data.forEach((c) => { cbMap[c.question_id] = c; });
+        setCoBloomByQId(cbMap);
       })
       .finally(() => setLoading(false));
   }, [paperId]);
@@ -44,6 +48,7 @@ export default function QuestionWiseVerification() {
                   <th>No.</th>
                   <th>Section</th>
                   <th>CO</th>
+                  <th>Bloom</th>
                   <th>Question</th>
                   <th>Marks</th>
                   <th>AI Status</th>
@@ -52,6 +57,7 @@ export default function QuestionWiseVerification() {
               <tbody>
                 {questions.map((q) => {
                   const v = verificationsByQId[q.id];
+                  const cb = coBloomByQId[q.id];
                   return (
                     <tr
                       key={q.id}
@@ -61,9 +67,10 @@ export default function QuestionWiseVerification() {
                       <td>{q.question_number}</td>
                       <td>{q.section || "-"}</td>
                       <td>{q.co || "-"}</td>
+                      <td>{cb ? cb.bloom_level : "-"}</td>
                       <td>
-                        {q.question_text.slice(0, 90)}
-                        {q.question_text.length > 90 ? "..." : ""}
+                        {q.question_text.slice(0, 80)}
+                        {q.question_text.length > 80 ? "..." : ""}
                       </td>
                       <td>{q.marks ?? "-"}</td>
                       <td>{v ? <StatusBadge status={v.ai_status} /> : <StatusBadge status="PENDING" />}</td>

@@ -1,5 +1,19 @@
 import re
 
+EXERCISE_HEADING_PATTERN = re.compile(r'^\s*Questions?\s*$', re.IGNORECASE | re.MULTILINE)
+NUMBERED_LINE = re.compile(r'^\s*\d{1,2}\.\s*\S', re.MULTILINE)
+
+
+def _is_exercise_block(text: str) -> bool:
+    if EXERCISE_HEADING_PATTERN.search(text[:50]):
+        return True
+    # Broadened: catches both question-mark style ("What is...?") and
+    # imperative style ("Explain...", "Describe...") numbered exercise lists —
+    # the original version only matched lines ending in '?', missing lists
+    # phrased as instructions instead of questions.
+    numbered_lines = NUMBERED_LINE.findall(text)
+    return len(numbered_lines) >= 3
+
 CHAPTER_PATTERN = re.compile(r'^\s*(Chapter|Unit)\s+(\S+)\b[:\-]?\s*(.*)', re.IGNORECASE)
 SECTION_NUM_PATTERN = re.compile(r'^\s*(\d+\.\d+)\s+(.*)')
 
@@ -36,6 +50,7 @@ def chunk_document(pages: list[str] | None, full_text: str) -> list[dict]:
             raw_pieces.append((piece_text, chapter, section, None))
 
     merged_pieces = _merge_small_chunks(raw_pieces)
+    merged_pieces = [p for p in merged_pieces if not _is_exercise_block(p[0])]
 
     chunks = []
     for idx, (text, chapter, section, page) in enumerate(merged_pieces):

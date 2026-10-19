@@ -2,7 +2,9 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
+from app.processing.co_extractor import extract_course_outcomes
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.paper import Paper
@@ -15,6 +17,10 @@ from app.models.retrieval_result import RetrievalResult
 from app.schemas.paper import RetrievalResultOut, EvidenceItemOut
 from app.retrieval.retriever import retrieve_evidence
 from app.retrieval.unit_mapper import build_unit_textbook_map
+
+from app.models.co_bloom_result import CoBloomResult
+from app.schemas.paper import CoBloomResultOut, AnalyzeCoBloomResponse
+from app.agents.co_bloom_agent import analyze_co_bloom
 
 from app.schemas.paper import (
     PaperCreate,
@@ -37,7 +43,7 @@ from app.agents.syllabus_textbook_agent import verify_question
 
 from app.utils.file_utils import validate_file, safe_save
 from app.processing.extraction import extract_text
-from app.processing.cleaning import clean_text
+from app.processing.cleaning import clean_text, clean_syllabus_text
 from app.processing.chunking import chunk_document
 from app.processing.qp_parser import parse_question_paper
 from app.validators.marks_validator import validate_marks, validate_unit_or_pattern
@@ -118,6 +124,8 @@ async def upload_document(
     filepath = safe_save(file_bytes, file.filename, paper_id)
     raw_text, was_ocr, pages = extract_text(filepath)
     cleaned = clean_text(raw_text)
+    if document_type == "syllabus":
+        cleaned = clean_syllabus_text(cleaned)
 
     document = Document(
         paper_id=paper_id,
@@ -413,6 +421,7 @@ def _format_evidence(matches: list[dict]) -> list[dict]:
             "section": meta.get("section") or None,
             "page": meta.get("page") if meta.get("page", -1) != -1 else None,
             "distance": m["distance"],
+            "rerank_score": m.get("rerank_score"),
         })
     return formatted
 
@@ -582,6 +591,10 @@ def verify_questions_endpoint(
 
     all_existing = db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
     existing_results = {v.question_id: v for v in all_existing if not v.llm_call_failed}
+    if force:
+        db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).delete()
+        db.commit()
+        existing_results = {}
     failed_placeholder_ids = {v.question_id for v in all_existing if v.llm_call_failed}
 
     # Clean up old failure placeholders so they get freshly re-verified, not
@@ -639,8 +652,11 @@ def verify_questions_endpoint(
             llm_call_failed=verdict.get("llm_call_failed", False),
         )
         db.add(vr)
-        db.commit()  # commit incrementally so progress survives a later quota stop
-        newly_verified_count += 1
+        try:
+            db.commit()
+            newly_verified_count += 1
+        except IntegrityError:
+            db.rollback()
 
         if idx < len(to_process) - 1:
             time.sleep(PROACTIVE_DELAY_SECONDS)
@@ -704,3 +720,100 @@ def get_question_verification(
         ai_status=vr.ai_status,
         explanation=vr.explanation,
     )
+
+@router.post("/{paper_id}/analyze-co-bloom", response_model=AnalyzeCoBloomResponse)
+def analyze_co_bloom_endpoint(
+    paper_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found. Run parse-questions first.")
+
+    # CO text comes from the syllabus's "Course Outcomes" section if present —
+    # best-effort: we don't have this parsed separately yet, so pass None for
+    # now (Gemini falls back to UNCERTAIN alignment per the prompt's own rule).
+
+    syllabus_doc = db.query(Document).filter(
+        Document.paper_id == paper_id, Document.document_type == "syllabus"
+    ).first()
+    co_text_by_code = extract_course_outcomes(syllabus_doc.extracted_text or "") if syllabus_doc else {}
+
+    all_existing = db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
+    existing_results = {v.question_id: v for v in all_existing if not v.llm_call_failed}
+    failed_ids = {v.question_id for v in all_existing if v.llm_call_failed}
+
+    if failed_ids:
+        db.query(CoBloomResult).filter(
+            CoBloomResult.paper_id == paper_id,
+            CoBloomResult.question_id.in_(failed_ids),
+        ).delete(synchronize_session=False)
+        db.commit()
+
+    skipped = sum(1 for q in questions if q.id in existing_results)
+    to_process = [q for q in questions if q.id not in existing_results]
+
+    newly_analyzed = 0
+    stopped_due_to_quota = False
+    quota_message = ""
+
+    for idx, q in enumerate(to_process):
+        co_text = co_text_by_code.get(q.co)
+
+        try:
+            result = analyze_co_bloom(q.question_text, q.co, co_text)
+        except GeminiRateLimitError as e:
+            stopped_due_to_quota = True
+            quota_message = f"Daily LLM quota exhausted after {newly_analyzed} new question(s). Run again later to continue."
+            break
+
+        cb = CoBloomResult(
+            question_id=q.id,
+            paper_id=paper_id,
+            bloom_level=result["bloom_level"],
+            co_code=result["co_code"],
+            co_alignment=result["co_alignment"],
+            explanation=result["explanation"],
+            llm_call_failed=result.get("llm_call_failed", False),
+        )
+        db.add(cb)
+        try:
+            db.commit()
+            newly_analyzed += 1
+        except IntegrityError:
+            # Another concurrent run already inserted a result for this
+            # question (e.g. a double-click or two open tabs triggering
+            # the endpoint close together) — safe to skip, not a real error.
+            db.rollback()
+
+        if idx < len(to_process) - 1:
+            time.sleep(PROACTIVE_DELAY_SECONDS)
+
+    all_results = db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
+
+    if not quota_message:
+        quota_message = f"Analyzed {newly_analyzed} question(s); {skipped} already had results."
+
+    return AnalyzeCoBloomResponse(
+        results=[CoBloomResultOut.model_validate(r) for r in all_results],
+        total_questions=len(questions),
+        already_analyzed_skipped=skipped,
+        newly_analyzed=newly_analyzed,
+        stopped_due_to_quota=stopped_due_to_quota,
+        message=quota_message,
+    )
+
+
+@router.get("/{paper_id}/co-bloom-results", response_model=list[CoBloomResultOut])
+def list_co_bloom_results(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    return db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
