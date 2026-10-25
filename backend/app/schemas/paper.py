@@ -158,3 +158,31 @@ class CombinedAnalysisResponse(BaseModel):
     newly_processed: int
     stopped_due_to_quota: bool
     message: str
+
+VALID_DECISIONS = {"ACCEPT", "REJECT", "OVERRIDE", "PENDING"}
+
+
+class BoeDecisionIn(BaseModel):
+    decision: str  # ACCEPT | REJECT | OVERRIDE | PENDING
+    comment: str | None = None
+
+
+class BoeDecisionOut(BaseModel):
+    question_id: int
+    ai_status_at_decision: str | None
+    decision: str
+    comment: str | None
+    decided_by: str
+    decided_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaperDecisionSummary(BaseModel):
+    total_questions: int
+    decided: int
+    pending: int
+    accepted: int
+    rejected: int
+    overridden: int

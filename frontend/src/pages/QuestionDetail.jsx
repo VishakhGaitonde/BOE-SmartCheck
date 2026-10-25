@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { listQuestions, getQuestionEvidence, getQuestionVerification, listCoBloomResults } from "../api/papers";
+import {
+  listQuestions,
+  getQuestionEvidence,
+  getQuestionVerification,
+  listCoBloomResults,
+  getBoeDecision,
+  saveBoeDecision,
+} from "../api/papers";
 import Navbar from "../components/Navbar";
 import EvidenceList from "../components/EvidenceList";
 import StatusBadge from "../components/StatusBadge";
+import DecisionForm from "../components/DecisionForm";
 
 export default function QuestionDetail() {
   const { paperId, questionId } = useParams();
@@ -11,10 +19,17 @@ export default function QuestionDetail() {
   const [evidence, setEvidence] = useState(null);
   const [verification, setVerification] = useState(null);
   const [coBloom, setCoBloom] = useState(null);
+  const [decision, setDecision] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
 
   useEffect(() => {
+    loadAll();
+  }, [paperId, questionId]);
+
+  const loadAll = () => {
     listQuestions(paperId).then((res) => {
       const q = res.data.find((item) => item.id === Number(questionId));
       setQuestion(q);
@@ -32,7 +47,25 @@ export default function QuestionDetail() {
     getQuestionVerification(paperId, questionId)
       .then((res) => setVerification(res.data))
       .finally(() => setLoading(false));
-  }, [paperId, questionId]);
+
+    getBoeDecision(paperId, questionId)
+      .then((res) => setDecision(res.data))
+      .catch(() => setDecision(null));
+  };
+
+  const handleSaveDecision = async (decisionValue, comment) => {
+    setSaving(true);
+    setSaveStatus("");
+    try {
+      const res = await saveBoeDecision(paperId, questionId, decisionValue, comment);
+      setDecision(res.data);
+      setSaveStatus("Decision saved.");
+    } catch (err) {
+      setSaveStatus(err.response?.data?.detail || "Failed to save decision.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!question) {
     return (
@@ -60,7 +93,10 @@ export default function QuestionDetail() {
                 {question.marks ?? "-"} marks
               </p>
             </div>
-            {verification && <StatusBadge status={verification.ai_status} />}
+            <div style={{ display: "flex", gap: 8 }}>
+              {verification && <StatusBadge status={verification.ai_status} />}
+              {decision && <StatusBadge status={decision.decision} />}
+            </div>
           </div>
 
           <p style={{ fontSize: 15, lineHeight: 1.6 }}>{question.question_text}</p>
@@ -98,6 +134,16 @@ export default function QuestionDetail() {
             <p style={{ fontSize: 14, marginTop: 6, lineHeight: 1.5 }}>{coBloom.explanation}</p>
           </div>
         )}
+
+        <h3 className="section-heading">BOE Decision</h3>
+        <div className="card">
+          <DecisionForm existingDecision={decision} onSave={handleSaveDecision} saving={saving} />
+          {saveStatus && (
+            <div className={saveStatus === "Decision saved." ? "alert alert-success" : "alert alert-error"} style={{ marginTop: 12 }}>
+              {saveStatus}
+            </div>
+          )}
+        </div>
 
         <h3 className="section-heading">Evidence</h3>
 

@@ -69,3 +69,15 @@ export const listCoBloomResults = (paperId) =>
 
 export const verifyAndAnalyze = (paperId, force = false) =>
   client.post(`/papers/${paperId}/verify-and-analyze`, null, { params: { force } });
+
+export const saveBoeDecision = (paperId, questionId, decision, comment) =>
+  client.put(`/papers/${paperId}/questions/${questionId}/decision`, { decision, comment });
+
+export const getBoeDecision = (paperId, questionId) =>
+  client.get(`/papers/${paperId}/questions/${questionId}/decision`);
+
+export const listBoeDecisions = (paperId) =>
+  client.get(`/papers/${paperId}/decisions`);
+
+export const getDecisionSummary = (paperId) =>
+  client.get(`/papers/${paperId}/decisions/summary`);

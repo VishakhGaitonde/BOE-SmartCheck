@@ -12,6 +12,7 @@ import {
   listCoBloomResults,
 } from "../api/papers";
 import Navbar from "../components/Navbar";
+import { getDecisionSummary } from "../api/papers";
 import StatusBadge from "../components/StatusBadge";
 import StatBox from "../components/StatBox";
 
@@ -27,6 +28,7 @@ export default function PaperSummary() {
   const [verifyStatus, setVerifyStatus] = useState("");
   const [verifyError, setVerifyError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [decisionSummary, setDecisionSummary] = useState(null);
 
   const [coBloomResults, setCoBloomResults] = useState([]);
   const [coBloomStatus, setCoBloomStatus] = useState("");
@@ -40,6 +42,7 @@ export default function PaperSummary() {
     loadValidation();
     loadVerifications();
     loadCoBloom();
+    loadDecisionSummary();
   }, [paperId]);
 
   const loadValidation = () => {
@@ -94,6 +97,10 @@ export default function PaperSummary() {
     } finally {
       setAnalyzingCoBloom(false);
     }
+  };
+
+  const loadDecisionSummary = () => {
+    getDecisionSummary(paperId).then((res) => setDecisionSummary(res.data));
   };
 
   if (!paper) {
@@ -197,6 +204,21 @@ export default function PaperSummary() {
 
           {coBloomStatus && <div className="alert alert-success" style={{ marginTop: 12 }}>{coBloomStatus}</div>}
           {coBloomError && <div className="alert alert-error" style={{ marginTop: 12 }}>{coBloomError}</div>}
+        </div>
+
+        <h3 className="section-heading">BOE Decisions</h3>
+        <div className="card">
+          {decisionSummary && (
+            <div className="stat-grid">
+              <StatBox value={decisionSummary.decided} label={`Decided / ${decisionSummary.total_questions}`} />
+              <StatBox value={decisionSummary.accepted} label="Accepted" />
+              <StatBox value={decisionSummary.rejected} label="Rejected" />
+              <StatBox value={decisionSummary.overridden} label="Overridden" />
+            </div>
+          )}
+          <Link to={`/papers/${paperId}/questions`}>
+            <button className="btn btn-secondary btn-sm">Review & Decide →</button>
+          </Link>
         </div>
 
         {/* ---------- Marks Validation ---------- */}

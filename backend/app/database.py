@@ -23,6 +23,6 @@ def init_db():
     from app.models import (
         paper, document, document_chunk, question,
         validation_result, retrieval_result, unit_textbook_map,
-        verification_result, co_bloom_result,
+        verification_result, co_bloom_result, boe_decision,
     )
     Base.metadata.create_all(bind=engine)

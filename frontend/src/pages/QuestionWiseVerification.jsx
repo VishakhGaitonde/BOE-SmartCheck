@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { listQuestions, listVerifications, listCoBloomResults } from "../api/papers";
 import Navbar from "../components/Navbar";
+import { listQuestions, listVerifications, listCoBloomResults, listBoeDecisions } from "../api/papers";
 import StatusBadge from "../components/StatusBadge";
 
 export default function QuestionWiseVerification() {
@@ -9,12 +9,13 @@ export default function QuestionWiseVerification() {
   const [questions, setQuestions] = useState([]);
   const [verificationsByQId, setVerificationsByQId] = useState({});
   const [coBloomByQId, setCoBloomByQId] = useState({});
+  const [decisionsByQId, setDecisionsByQId] = useState({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    Promise.all([listQuestions(paperId), listVerifications(paperId), listCoBloomResults(paperId)])
-      .then(([qRes, vRes, cbRes]) => {
+    Promise.all([listQuestions(paperId), listVerifications(paperId), listCoBloomResults(paperId), listBoeDecisions(paperId)])
+      .then(([qRes, vRes, cbRes, dRes]) => {
         setQuestions(qRes.data);
         const map = {};
         vRes.data.forEach((v) => { map[v.question_id] = v; });
@@ -22,6 +23,9 @@ export default function QuestionWiseVerification() {
         const cbMap = {};
         cbRes.data.forEach((c) => { cbMap[c.question_id] = c; });
         setCoBloomByQId(cbMap);
+        const dMap = {};
+        dRes.data.forEach((d) => { dMap[d.question_id] = d; });
+        setDecisionsByQId(dMap);
       })
       .finally(() => setLoading(false));
   }, [paperId]);
@@ -53,6 +57,7 @@ export default function QuestionWiseVerification() {
                   <th>Question</th>
                   <th>Marks</th>
                   <th>AI Status</th>
+                  <th>BOE Decision</th>
                 </tr>
               </thead>
               <tbody>
@@ -76,6 +81,11 @@ export default function QuestionWiseVerification() {
                       </td>
                       <td>{q.marks ?? "-"}</td>
                       <td>{v ? <StatusBadge status={v.ai_status} /> : <StatusBadge status="PENDING" />}</td>
+                      <td>
+                        {decisionsByQId[q.id]
+                          ? <StatusBadge status={decisionsByQId[q.id].decision} />
+                          : <StatusBadge status="PENDING" />}
+                      </td>
                     </tr>
                   );
                 })}

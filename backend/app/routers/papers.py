@@ -25,6 +25,9 @@ from app.models.co_bloom_result import CoBloomResult
 from app.schemas.paper import CoBloomResultOut, AnalyzeCoBloomResponse
 from app.agents.co_bloom_agent import analyze_co_bloom
 
+from app.models.boe_decision import BoeDecision
+from app.schemas.paper import BoeDecisionIn, BoeDecisionOut, PaperDecisionSummary, VALID_DECISIONS
+
 from app.schemas.paper import (
     PaperCreate,
     PaperOut,
@@ -912,4 +915,113 @@ def verify_and_analyze_endpoint(
         total_questions=len(questions), already_done_skipped=skipped,
         newly_processed=newly_processed, stopped_due_to_quota=stopped_due_to_quota,
         message=quota_message,
+    )
+
+@router.put("/{paper_id}/questions/{question_id}/decision", response_model=BoeDecisionOut)
+def save_boe_decision(
+    paper_id: int,
+    question_id: int,
+    payload: BoeDecisionIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    if payload.decision not in VALID_DECISIONS:
+        raise HTTPException(status_code=400, detail=f"decision must be one of {VALID_DECISIONS}")
+
+    question = db.query(Question).filter(Question.id == question_id, Question.paper_id == paper_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    verification = db.query(VerificationResult).filter(VerificationResult.question_id == question_id).first()
+    ai_status = verification.ai_status if verification else None
+
+    existing = db.query(BoeDecision).filter(BoeDecision.question_id == question_id).first()
+
+    if existing:
+        existing.decision = payload.decision
+        existing.comment = payload.comment
+        existing.ai_status_at_decision = ai_status
+        existing.decided_by = current_user
+        db.commit()
+        db.refresh(existing)
+        decision_obj = existing
+    else:
+        decision_obj = BoeDecision(
+            question_id=question_id,
+            paper_id=paper_id,
+            ai_status_at_decision=ai_status,
+            decision=payload.decision,
+            comment=payload.comment,
+            decided_by=current_user,
+        )
+        db.add(decision_obj)
+        db.commit()
+        db.refresh(decision_obj)
+
+    # Update paper-level final_boe_status: PENDING if any question still
+    # undecided, else a summary reflecting whether everything was accepted
+    # or something was rejected/overridden.
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    all_questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    all_decisions = db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()
+    decision_map = {d.question_id: d.decision for d in all_decisions}
+
+    if len(all_decisions) < len(all_questions) or any(d == "PENDING" for d in decision_map.values()):
+        paper.final_boe_status = "PENDING"
+    elif any(d == "REJECT" for d in decision_map.values()):
+        paper.final_boe_status = "REJECTED"
+    elif any(d == "OVERRIDE" for d in decision_map.values()):
+        paper.final_boe_status = "OVERRIDDEN"
+    else:
+        paper.final_boe_status = "ACCEPTED"
+    db.commit()
+
+    return decision_obj
+
+
+@router.get("/{paper_id}/questions/{question_id}/decision", response_model=BoeDecisionOut)
+def get_boe_decision(
+    paper_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    decision = db.query(BoeDecision).filter(
+        BoeDecision.paper_id == paper_id, BoeDecision.question_id == question_id
+    ).first()
+    if not decision:
+        raise HTTPException(status_code=404, detail="No decision recorded yet for this question.")
+    return decision
+
+
+@router.get("/{paper_id}/decisions", response_model=list[BoeDecisionOut])
+def list_boe_decisions(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    return db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()
+
+
+@router.get("/{paper_id}/decisions/summary", response_model=PaperDecisionSummary)
+def get_decision_summary(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    total = db.query(Question).filter(Question.paper_id == paper_id).count()
+    decisions = db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()
+
+    decided = len(decisions)
+    accepted = sum(1 for d in decisions if d.decision == "ACCEPT")
+    rejected = sum(1 for d in decisions if d.decision == "REJECT")
+    overridden = sum(1 for d in decisions if d.decision == "OVERRIDE")
+
+    return PaperDecisionSummary(
+        total_questions=total,
+        decided=decided,
+        pending=total - decided,
+        accepted=accepted,
+        rejected=rejected,
+        overridden=overridden,
     )
