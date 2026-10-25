@@ -186,3 +186,27 @@ class PaperDecisionSummary(BaseModel):
     accepted: int
     rejected: int
     overridden: int
+
+class DuplicationResultOut(BaseModel):
+    question_id_a: int
+    question_id_b: int
+    similarity: float
+    status: str
+    explanation: str
+
+    class Config:
+        from_attributes = True
+
+
+class PaperSummaryOut(BaseModel):
+    overall_status: str
+    marks_valid: bool
+    supported_count: int
+    review_count: int
+    unrelated_count: int
+    aligned_count: int
+    mismatch_count: int
+    uncertain_count: int
+    likely_duplicate_count: int
+    possible_duplicate_count: int
+    reasons: list[str]

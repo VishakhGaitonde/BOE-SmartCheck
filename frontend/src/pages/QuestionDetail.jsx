@@ -99,7 +99,14 @@ export default function QuestionDetail() {
             </div>
           </div>
 
-          <p style={{ fontSize: 15, lineHeight: 1.6 }}>{question.question_text}</p>
+          <p style={{ fontSize: 15, lineHeight: 1.6, marginBottom: 20 }}>{question.question_text}</p>
+
+          <DecisionForm existingDecision={decision} onSave={handleSaveDecision} saving={saving} />
+          {saveStatus && (
+            <div className={saveStatus === "Decision saved." ? "alert alert-success" : "alert alert-error"} style={{ marginTop: 12 }}>
+              {saveStatus}
+            </div>
+          )}
         </div>
 
         {verification && (
@@ -134,16 +141,6 @@ export default function QuestionDetail() {
             <p style={{ fontSize: 14, marginTop: 6, lineHeight: 1.5 }}>{coBloom.explanation}</p>
           </div>
         )}
-
-        <h3 className="section-heading">BOE Decision</h3>
-        <div className="card">
-          <DecisionForm existingDecision={decision} onSave={handleSaveDecision} saving={saving} />
-          {saveStatus && (
-            <div className={saveStatus === "Decision saved." ? "alert alert-success" : "alert alert-error"} style={{ marginTop: 12 }}>
-              {saveStatus}
-            </div>
-          )}
-        </div>
 
         <h3 className="section-heading">Evidence</h3>
 

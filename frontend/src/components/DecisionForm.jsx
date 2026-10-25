@@ -1,10 +1,10 @@
 import { useState } from "react";
 
 const DECISIONS = [
-  { value: "ACCEPT", label: "Accept" },
-  { value: "REJECT", label: "Reject" },
-  { value: "OVERRIDE", label: "Override" },
-  { value: "PENDING", label: "Pending" },
+  { value: "ACCEPT", label: "✓ Accept" },
+  { value: "REJECT", label: "✗ Reject" },
+  { value: "OVERRIDE", label: "⟳ Override" },
+  { value: "PENDING", label: "⏸ Pending" },
 ];
 
 export default function DecisionForm({ existingDecision, onSave, saving }) {
@@ -18,16 +18,20 @@ export default function DecisionForm({ existingDecision, onSave, saving }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="form-group">
-        <label className="form-label">BOE Decision</label>
-        <select className="form-select" value={decision} onChange={(e) => setDecision(e.target.value)}>
-          {DECISIONS.map((d) => (
-            <option key={d.value} value={d.value}>{d.label}</option>
-          ))}
-        </select>
+      <div className="decision-scroll">
+        {DECISIONS.map((d) => (
+          <button
+            key={d.value}
+            type="button"
+            className={`decision-pill ${decision === d.value ? `active-${d.value}` : ""}`}
+            onClick={() => setDecision(d.value)}
+          >
+            {d.label}
+          </button>
+        ))}
       </div>
 
-      <div className="form-group">
+      <div className="form-group" style={{ marginTop: 12 }}>
         <label className="form-label">Comment (optional)</label>
         <textarea
           className="form-input"

@@ -21,6 +21,16 @@ from app.schemas.paper import RetrievalResultOut, EvidenceItemOut
 from app.retrieval.retriever import retrieve_evidence
 from app.retrieval.unit_mapper import build_unit_textbook_map
 
+from fastapi.responses import FileResponse
+
+from app.models.duplication_result import DuplicationResult
+from app.models.paper_summary import PaperSummaryResult
+from app.models.boe_decision import BoeDecision
+from app.schemas.paper import DuplicationResultOut, PaperSummaryOut
+from app.agents.duplication_agent import detect_duplicates
+from app.agents.coordinator import aggregate_paper_summary
+from app.reports.pdf_report import generate_report
+
 from app.models.co_bloom_result import CoBloomResult
 from app.schemas.paper import CoBloomResultOut, AnalyzeCoBloomResponse
 from app.agents.co_bloom_agent import analyze_co_bloom
@@ -1025,3 +1035,138 @@ def get_decision_summary(
         rejected=rejected,
         overridden=overridden,
     )
+
+
+@router.post("/{paper_id}/detect-duplicates", response_model=list[DuplicationResultOut])
+def detect_duplicates_endpoint(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found. Run parse-questions first.")
+
+    pairs = detect_duplicates([{"id": q.id, "text": q.question_text} for q in questions])
+
+    db.query(DuplicationResult).filter(DuplicationResult.paper_id == paper_id).delete()
+    for p in pairs:
+        db.add(DuplicationResult(
+            paper_id=paper_id,
+            question_id_a=p["question_id_a"],
+            question_id_b=p["question_id_b"],
+            similarity=p["similarity"],
+            status=p["status"],
+            explanation=p["explanation"],
+        ))
+    db.commit()
+
+    return db.query(DuplicationResult).filter(DuplicationResult.paper_id == paper_id).all()
+
+
+@router.get("/{paper_id}/duplicates", response_model=list[DuplicationResultOut])
+def list_duplicates(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    return db.query(DuplicationResult).filter(DuplicationResult.paper_id == paper_id).all()
+
+
+@router.post("/{paper_id}/aggregate-summary", response_model=PaperSummaryOut)
+def aggregate_summary_endpoint(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    validation = db.query(ValidationResult).filter(ValidationResult.paper_id == paper_id).first()
+    marks_valid = validation.overall_valid if validation else False
+
+    verification_results = db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
+    co_bloom_results = db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
+    duplication_results = db.query(DuplicationResult).filter(DuplicationResult.paper_id == paper_id).all()
+
+    summary = aggregate_paper_summary(marks_valid, verification_results, co_bloom_results, duplication_results)
+
+    existing = db.query(PaperSummaryResult).filter(PaperSummaryResult.paper_id == paper_id).first()
+    if existing:
+        db.delete(existing)
+        db.flush()
+
+    db.add(PaperSummaryResult(
+        paper_id=paper_id,
+        overall_status=summary["overall_status"],
+        marks_valid=summary["marks_valid"],
+        supported_count=summary["supported_count"],
+        review_count=summary["review_count"],
+        unrelated_count=summary["unrelated_count"],
+        aligned_count=summary["aligned_count"],
+        mismatch_count=summary["mismatch_count"],
+        uncertain_count=summary["uncertain_count"],
+        likely_duplicate_count=summary["likely_duplicate_count"],
+        possible_duplicate_count=summary["possible_duplicate_count"],
+        reasons_json=json.dumps(summary["reasons"]),
+    ))
+
+    paper.overall_ai_status = summary["overall_status"]
+    db.commit()
+
+    return PaperSummaryOut(**summary)
+
+
+@router.get("/{paper_id}/summary", response_model=PaperSummaryOut)
+def get_paper_summary(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    row = db.query(PaperSummaryResult).filter(PaperSummaryResult.paper_id == paper_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="No summary generated yet. Run aggregate-summary first.")
+
+    return PaperSummaryOut(
+        overall_status=row.overall_status, marks_valid=row.marks_valid,
+        supported_count=row.supported_count, review_count=row.review_count,
+        unrelated_count=row.unrelated_count, aligned_count=row.aligned_count,
+        mismatch_count=row.mismatch_count, uncertain_count=row.uncertain_count,
+        likely_duplicate_count=row.likely_duplicate_count,
+        possible_duplicate_count=row.possible_duplicate_count,
+        reasons=json.loads(row.reasons_json),
+    )
+
+
+@router.get("/{paper_id}/report")
+def download_report(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).order_by(Question.id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions found.")
+
+    verifications_by_qid = {v.question_id: v for v in db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()}
+    co_bloom_by_qid = {c.question_id: c for c in db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()}
+    decisions_by_qid = {d.question_id: d for d in db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()}
+    validation = db.query(ValidationResult).filter(ValidationResult.paper_id == paper_id).first()
+    duplication_pairs = db.query(DuplicationResult).filter(DuplicationResult.paper_id == paper_id).all()
+
+    marks_valid = validation.overall_valid if validation else False
+    summary = aggregate_paper_summary(
+        marks_valid,
+        list(verifications_by_qid.values()),
+        list(co_bloom_by_qid.values()),
+        duplication_pairs,
+    )
+
+    filepath = generate_report(paper, questions, verifications_by_qid, co_bloom_by_qid, decisions_by_qid, validation, summary, duplication_pairs)
+
+    return FileResponse(filepath, media_type="application/pdf", filename=f"{paper.paper_name}_report.pdf")

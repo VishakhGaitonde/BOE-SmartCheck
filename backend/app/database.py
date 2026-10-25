@@ -24,5 +24,6 @@ def init_db():
         paper, document, document_chunk, question,
         validation_result, retrieval_result, unit_textbook_map,
         verification_result, co_bloom_result, boe_decision,
+        duplication_result, paper_summary,
     )
     Base.metadata.create_all(bind=engine)

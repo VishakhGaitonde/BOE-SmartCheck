@@ -81,3 +81,27 @@ export const listBoeDecisions = (paperId) =>
 
 export const getDecisionSummary = (paperId) =>
   client.get(`/papers/${paperId}/decisions/summary`);
+
+export const detectDuplicates = (paperId) =>
+  client.post(`/papers/${paperId}/detect-duplicates`);
+
+export const listDuplicates = (paperId) =>
+  client.get(`/papers/${paperId}/duplicates`);
+
+export const aggregateSummary = (paperId) =>
+  client.post(`/papers/${paperId}/aggregate-summary`);
+
+export const getPaperCoordinatorSummary = (paperId) =>
+  client.get(`/papers/${paperId}/summary`);
+
+export const downloadReport = async (paperId, paperName) => {
+  const res = await client.get(`/papers/${paperId}/report`, { responseType: "blob" });
+  const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", `${paperName || "paper"}_report.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
