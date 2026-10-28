@@ -12,6 +12,7 @@ from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.question import Question
 from app.models.validation_result import ValidationResult
+from app.agents.combined_agent import verify_and_analyze_batch
 
 from app.agents.combined_agent import verify_and_analyze
 from app.schemas.paper import CombinedAnalysisResponse
@@ -841,6 +842,9 @@ def list_co_bloom_results(
 ):
     return db.query(CoBloomResult).filter(CoBloomResult.paper_id == paper_id).all()
 
+BATCH_SIZE = 5  # questions per Gemini call — cuts total API calls ~5x
+
+
 @router.post("/{paper_id}/verify-and-analyze", response_model=CombinedAnalysisResponse)
 def verify_and_analyze_endpoint(
     paper_id: int,
@@ -848,10 +852,6 @@ def verify_and_analyze_endpoint(
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
-    """
-    Combined Phase 10 + Phase 11 in ONE Gemini call per question (instead of
-    two separate calls) — halves total LLM calls and processing time.
-    """
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -883,39 +883,57 @@ def verify_and_analyze_endpoint(
     stopped_due_to_quota = False
     quota_message = ""
 
-    for idx, q in enumerate(to_process):
-        retrieval = retrievals.get(q.id)
-        syllabus_evidence = json.loads(retrieval.syllabus_evidence_json) if retrieval else []
-        textbook_evidence = json.loads(retrieval.textbook_evidence_json) if retrieval else []
-        co_text = co_text_by_code.get(q.co)
+    batches = [to_process[i:i + BATCH_SIZE] for i in range(0, len(to_process), BATCH_SIZE)]
+
+    for batch_idx, batch in enumerate(batches):
+        items = []
+        for i, q in enumerate(batch):
+            retrieval = retrievals.get(q.id)
+            syllabus_evidence = json.loads(retrieval.syllabus_evidence_json) if retrieval else []
+            textbook_evidence = json.loads(retrieval.textbook_evidence_json) if retrieval else []
+            items.append({
+                "index": i,
+                "question_id": q.id,
+                "question_text": q.question_text,
+                "co_code": q.co,
+                "co_text": co_text_by_code.get(q.co),
+                "syllabus_evidence": syllabus_evidence,
+                "textbook_evidence": textbook_evidence,
+            })
 
         try:
-            result = verify_and_analyze(q.question_text, q.co, co_text, syllabus_evidence, textbook_evidence)
+            batch_results = verify_and_analyze_batch(items)
         except GeminiRateLimitError as e:
             stopped_due_to_quota = True
             quota_message = f"Daily LLM quota exhausted after {newly_processed} question(s). Resume later."
             break
 
-        db.query(VerificationResult).filter(VerificationResult.question_id == q.id).delete()
-        db.query(CoBloomResult).filter(CoBloomResult.question_id == q.id).delete()
+        for item, result in zip(items, batch_results):
+            q_id = item["question_id"]
 
-        db.add(VerificationResult(
-            question_id=q.id, paper_id=paper_id,
-            syllabus_match=result["syllabus_match"], syllabus_topic=result["syllabus_topic"],
-            textbook_match=result["textbook_match"], textbook_reference=result["textbook_reference"],
-            ai_status=result["status"], explanation=result["explanation"],
-            llm_call_failed=result["llm_call_failed"],
-        ))
-        db.add(CoBloomResult(
-            question_id=q.id, paper_id=paper_id,
-            bloom_level=result["bloom_level"], co_code=q.co,
-            co_alignment=result["co_alignment"], explanation=result["co_bloom_explanation"],
-            llm_call_failed=result["llm_call_failed"],
-        ))
-        db.commit()
-        newly_processed += 1
+            db.query(VerificationResult).filter(VerificationResult.question_id == q_id).delete()
+            db.query(CoBloomResult).filter(CoBloomResult.question_id == q_id).delete()
 
-        if idx < len(to_process) - 1:
+            db.add(VerificationResult(
+                question_id=q_id, paper_id=paper_id,
+                syllabus_match=result["syllabus_match"], syllabus_topic=result["syllabus_topic"],
+                textbook_match=result["textbook_match"], textbook_reference=result["textbook_reference"],
+                ai_status=result["status"], explanation=result["explanation"],
+                llm_call_failed=result["llm_call_failed"],
+            ))
+            db.add(CoBloomResult(
+                question_id=q_id, paper_id=paper_id,
+                bloom_level=result["bloom_level"], co_code=item["co_code"],
+                co_alignment=result["co_alignment"], explanation=result["co_bloom_explanation"],
+                llm_call_failed=result["llm_call_failed"],
+            ))
+            try:
+                db.commit()
+                newly_processed += 1
+            except IntegrityError:
+                db.rollback()
+
+        if batch_idx < len(batches) - 1:
             time.sleep(PROACTIVE_DELAY_SECONDS)
 
     if not quota_message:

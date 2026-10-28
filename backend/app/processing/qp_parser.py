@@ -10,8 +10,7 @@ SUB_Q_PATTERN = re.compile(r'^\s*([a-eA-E])\s*[\.\)]\s*(.*)')
 CO_PATTERN = re.compile(r'\bCO\s*-?\s*(\d{1,2})\b', re.IGNORECASE)
 
 MARKS_PATTERN = re.compile(
-    r'\[(\d{1,3})\]'
-    r'|\((\d{1,3})\s*(?:marks?|m)?\)'
+    r'\((\d{1,3})\s*(?:marks?|m)?\)'
     r'|(\d{1,3})\s*marks?\b',
     re.IGNORECASE,
 )
