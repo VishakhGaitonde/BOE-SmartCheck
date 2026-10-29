@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Render injects $PORT at runtime — bind to it
-CMD ["sh", "-c", "echo Starting FastAPI on port ${PORT:-10000}; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --log-level debug"]
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT

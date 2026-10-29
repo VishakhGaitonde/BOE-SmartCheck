@@ -1,22 +1,11 @@
-print("A: Starting main.py", flush=True)
-
 from fastapi import FastAPI, Depends
-print("B: FastAPI imported", flush=True)
-
 from fastapi.middleware.cors import CORSMiddleware
-print("C: CORS imported", flush=True)
 
 from app.routers import auth, papers
-print("D: Routers imported", flush=True)
-
 from app.auth.dependencies import get_current_user
-print("E: Auth dependencies imported", flush=True)
-
 from app.database import init_db
-print("F: Database imported", flush=True)
-
 from app.config import ALLOWED_ORIGINS_LIST
-print("G: Config imported", flush=True)
+
 app = FastAPI(title="Smart BOE")
 
 app.add_middleware(
