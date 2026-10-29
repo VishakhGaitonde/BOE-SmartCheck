@@ -1,7 +1,9 @@
 from pathlib import Path
 import chromadb
+import os
 
-CHROMA_DIR = Path(__file__).resolve().parent.parent.parent / "storage" / "chroma_db"
+STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", Path(__file__).resolve().parent.parent.parent / "storage"))
+CHROMA_DIR = STORAGE_ROOT / "chroma_db"
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
 _client = None

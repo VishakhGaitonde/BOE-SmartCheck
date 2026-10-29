@@ -1,4 +1,7 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -9,9 +12,12 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 120
     database_url: str = "sqlite:///./smart_boe.db"
     llm_api_key: str = ""
+    allowed_origins: str = "http://localhost:5173"  # comma-separated list
 
     class Config:
-        env_file = ".env"
+        env_file = BASE_DIR / ".env"
 
 
 settings = Settings()
+
+ALLOWED_ORIGINS_LIST = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]

@@ -4,12 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, papers
 from app.auth.dependencies import get_current_user
 from app.database import init_db
+from app.config import ALLOWED_ORIGINS_LIST
 
 app = FastAPI(title="Smart BOE")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=ALLOWED_ORIGINS_LIST,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

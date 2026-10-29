@@ -5,7 +5,8 @@ from pathlib import Path
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 MAX_FILE_SIZE_MB = 50
 
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "storage" / "uploads"
+STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", Path(__file__).resolve().parent.parent.parent / "storage"))
+UPLOAD_DIR = STORAGE_ROOT / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
