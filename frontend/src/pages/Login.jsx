@@ -26,7 +26,7 @@ export default function Login() {
         <div className="card">
           <div className="navbar-brand" style={{ marginBottom: 20, justifyContent: "center" }}>
             <span className="dot" />
-            Smart BOE
+            BOE SmartCheck
           </div>
           <h2 className="card-title" style={{ textAlign: "center" }}>Welcome back</h2>
           <p className="card-subtitle" style={{ textAlign: "center" }}>

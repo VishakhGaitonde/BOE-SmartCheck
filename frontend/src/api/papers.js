@@ -105,3 +105,9 @@ export const downloadReport = async (paperId, paperName) => {
   link.remove();
   window.URL.revokeObjectURL(url);
 };
+
+export const deletePaper = (paperId) =>
+  client.delete(`/papers/${paperId}`);
+
+export const savePaperDecision = (paperId, decision, comment) =>
+  client.put(`/papers/${paperId}/decision`, { decision, comment });

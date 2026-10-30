@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listPapers } from "../api/papers";
+import { listPapers, deletePaper } from "../api/papers";
 import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
 
@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     listPapers()
@@ -15,6 +16,28 @@ export default function Dashboard() {
       .catch(() => setError("Failed to load papers."))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDelete = async (paper) => {
+    const confirmed = window.confirm(
+      `Permanently delete "${paper.paper_name}"?\n\n` +
+      `This removes the paper, its uploaded files, all AI results and BOE decisions. ` +
+      `This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(paper.id);
+    setError("");
+    try {
+      await deletePaper(paper.id);
+      setPapers((prev) => prev.filter((p) => p.id !== paper.id));
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete paper.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const isVerifiedByBoe = (p) => p.final_boe_status && p.final_boe_status !== "PENDING";
 
   return (
     <div>
@@ -63,9 +86,23 @@ export default function Dashboard() {
                     <td>{p.course || "-"}</td>
                     <td>{p.pattern} marks</td>
                     <td>{new Date(p.uploaded_at).toLocaleDateString()}</td>
-                    <td><StatusBadge status={p.overall_ai_status} /></td>
+                    <td>
+                      {isVerifiedByBoe(p)
+                        ? <StatusBadge status="VERIFIED_BY_BOE" label="VERIFIED BY BOE" />
+                        : <StatusBadge status={p.overall_ai_status} />}
+                    </td>
                     <td><StatusBadge status={p.final_boe_status} /></td>
-                    <td><Link to={`/papers/${p.id}`}>View →</Link></td>
+                    <td>
+                      <Link to={`/papers/${p.id}`}>View →</Link>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        style={{ marginLeft: 12 }}
+                        onClick={() => handleDelete(p)}
+                        disabled={deletingId === p.id}
+                      >
+                        {deletingId === p.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -4,6 +4,7 @@ const VARIANTS = {
   ACCEPTED: "badge-success",
   ACCEPT: "badge-success",
   ALIGNED: "badge-success",
+  VERIFIED_BY_BOE: "badge-success",
   REQUIRES_REVIEW: "badge-warning",
   REQUIRES_BOE_REVIEW: "badge-warning",
   OVERRIDE: "badge-warning",
@@ -13,9 +14,10 @@ const VARIANTS = {
   REJECT: "badge-danger",
   REJECTED: "badge-danger",
   PENDING: "badge-pending",
+  OVERRIDDEN: "badge-warning",
 };
 
-export default function StatusBadge({ status }) {
+export default function StatusBadge({ status, label }) {
   const variant = VARIANTS[status] || "badge-pending";
-  return <span className={`badge ${variant}`}>{status || "PENDING"}</span>;
+  return <span className={`badge ${variant}`}>{label || status || "PENDING"}</span>;
 }

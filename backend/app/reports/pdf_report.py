@@ -29,7 +29,7 @@ def generate_report(paper, questions, verifications_by_qid, co_bloom_by_qid, dec
     cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=7.5, leading=9.5, wordWrap="CJK")
     header_style = ParagraphStyle("Header", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.black, fontName="Helvetica-Bold")
 
-    elements.append(Paragraph("Smart BOE — Question Paper Verification Report", title_style))
+    elements.append(Paragraph("BOE SmartCheck — Question Paper Verification Report", title_style))
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(f"<b>Paper:</b> {paper.paper_name}", normal))
     elements.append(Paragraph(f"<b>Course:</b> {paper.course or '-'}", normal))

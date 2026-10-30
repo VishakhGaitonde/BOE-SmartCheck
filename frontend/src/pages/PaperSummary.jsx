@@ -16,10 +16,12 @@ import {
   getPaperCoordinatorSummary,
   downloadReport,
   getDecisionSummary,
+  savePaperDecision,
 } from "../api/papers";
 import Navbar from "../components/Navbar";
 import StatusBadge from "../components/StatusBadge";
 import StatBox from "../components/StatBox";
+import PaperDecisionForm from "../components/PaperDecisionForm";
 
 export default function PaperSummary() {
   const { paperId } = useParams();
@@ -52,8 +54,12 @@ export default function PaperSummary() {
   const [decisionSummary, setDecisionSummary] = useState(null);
   const [downloading, setDownloading] = useState(false);
 
+  const [savingPaperDecision, setSavingPaperDecision] = useState(false);
+  const [paperDecisionStatus, setPaperDecisionStatus] = useState("");
+  const [paperDecisionError, setPaperDecisionError] = useState("");
+
   useEffect(() => {
-    getPaper(paperId).then((res) => setPaper(res.data));
+    loadPaper();
     listDocuments(paperId).then((res) => setDocuments(res.data));
     listQuestions(paperId).then((res) => setQuestions(res.data));
     loadValidation();
@@ -64,12 +70,35 @@ export default function PaperSummary() {
     loadDecisionSummary();
   }, [paperId]);
 
+  const loadPaper = () => getPaper(paperId).then((res) => setPaper(res.data));
   const loadValidation = () => getValidation(paperId).then((res) => setValidation(res.data)).catch(() => setValidation(null));
   const loadVerifications = () => listVerifications(paperId).then((res) => setVerifications(res.data));
   const loadCoBloom = () => listCoBloomResults(paperId).then((res) => setCoBloomResults(res.data));
   const loadDuplicates = () => listDuplicates(paperId).then((res) => setDuplicates(res.data));
   const loadCoordSummary = () => getPaperCoordinatorSummary(paperId).then((res) => setCoordSummary(res.data)).catch(() => setCoordSummary(null));
   const loadDecisionSummary = () => getDecisionSummary(paperId).then((res) => setDecisionSummary(res.data));
+
+  const handleApplyPaperDecision = async (decision, comment) => {
+    setSavingPaperDecision(true);
+    setPaperDecisionStatus("");
+    setPaperDecisionError("");
+    try {
+      await savePaperDecision(paperId, decision, comment);
+      setPaperDecisionStatus(
+        decision === "PENDING"
+          ? "All questions reset to Pending."
+          : `Decision "${decision}" applied to all ${questions.length} questions.`
+      );
+      loadPaper();
+      loadDecisionSummary();
+      return true;
+    } catch (err) {
+      setPaperDecisionError(err.response?.data?.detail || "Failed to apply decision.");
+      return false;
+    } finally {
+      setSavingPaperDecision(false);
+    }
+  };
 
   const runValidation = async () => {
     try {
@@ -193,6 +222,21 @@ export default function PaperSummary() {
           </div>
         </div>
 
+        {/* ---------- BOE Decision (entire paper) ---------- */}
+        <h3 className="section-heading">BOE Decision — Entire Paper</h3>
+        <div className="card">
+          <p style={{ fontSize: 13, color: "var(--color-text-muted)", marginTop: 0 }}>
+            Apply one decision to every question at once. You can still change individual questions afterwards.
+          </p>
+          <PaperDecisionForm
+            totalQuestions={questions.length}
+            saving={savingPaperDecision}
+            onApply={handleApplyPaperDecision}
+          />
+          {paperDecisionStatus && <div className="alert alert-success" style={{ marginTop: 12 }}>{paperDecisionStatus}</div>}
+          {paperDecisionError && <div className="alert alert-error" style={{ marginTop: 12 }}>{paperDecisionError}</div>}
+        </div>
+
         {/* ---------- Overall AI Recommendation (Coordinator) ---------- */}
         <h3 className="section-heading">Overall AI Recommendation</h3>
         <div className="card">
@@ -304,7 +348,7 @@ export default function PaperSummary() {
           {dupError && <div className="alert alert-error" style={{ marginTop: 12 }}>{dupError}</div>}
         </div>
 
-        {/* ---------- BOE Decisions ---------- */}
+        {/* ---------- BOE Decisions summary ---------- */}
         <h3 className="section-heading">BOE Decisions</h3>
         <div className="card">
           {decisionSummary && (

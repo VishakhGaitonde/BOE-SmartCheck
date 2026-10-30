@@ -14,6 +14,11 @@ from app.models.question import Question
 from app.models.validation_result import ValidationResult
 from app.agents.combined_agent import verify_and_analyze_batch
 
+import shutil
+
+from app.utils.file_utils import validate_file, safe_save, UPLOAD_DIR
+from app.reports.pdf_report import generate_report, OUTPUT_DIR as REPORT_DIR
+
 from app.agents.combined_agent import verify_and_analyze
 from app.schemas.paper import CombinedAnalysisResponse
 
@@ -1040,7 +1045,7 @@ def get_decision_summary(
     total = db.query(Question).filter(Question.paper_id == paper_id).count()
     decisions = db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()
 
-    decided = len(decisions)
+    decided = sum(1 for d in decisions if d.decision != "PENDING")
     accepted = sum(1 for d in decisions if d.decision == "ACCEPT")
     rejected = sum(1 for d in decisions if d.decision == "REJECT")
     overridden = sum(1 for d in decisions if d.decision == "OVERRIDE")
@@ -1188,3 +1193,102 @@ def download_report(
     filepath = generate_report(paper, questions, verifications_by_qid, co_bloom_by_qid, decisions_by_qid, validation, summary, duplication_pairs)
 
     return FileResponse(filepath, media_type="application/pdf", filename=f"{paper.paper_name}_report.pdf")
+
+@router.delete("/{paper_id}")
+def delete_paper(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """
+    Permanently deletes a paper and everything attached to it: all DB rows,
+    uploaded files, the ChromaDB collection, and the generated PDF report.
+    """
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Children first, then the paper itself
+    for model in (
+        BoeDecision, DuplicationResult, PaperSummaryResult, CoBloomResult,
+        VerificationResult, RetrievalResult, UnitTextbookMap, ValidationResult,
+        DocumentChunk, Question, Document,
+    ):
+        db.query(model).filter(model.paper_id == paper_id).delete(synchronize_session=False)
+
+    db.delete(paper)
+    db.commit()
+
+    # Files and vectors (after the DB commit succeeds)
+    delete_collection(paper_id)
+    shutil.rmtree(UPLOAD_DIR / str(paper_id), ignore_errors=True)
+    (REPORT_DIR / f"paper_{paper_id}_report.pdf").unlink(missing_ok=True)
+
+    return {"status": "deleted", "paper_id": paper_id}
+
+PAPER_STATUS_FOR_DECISION = {
+    "ACCEPT": "ACCEPTED",
+    "REJECT": "REJECTED",
+    "OVERRIDE": "OVERRIDDEN",
+    "PENDING": "PENDING",
+}
+
+
+@router.put("/{paper_id}/decision", response_model=PaperDecisionSummary)
+def save_paper_decision(
+    paper_id: int,
+    payload: BoeDecisionIn,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Applies one BOE decision to EVERY question in the paper at once."""
+    if payload.decision not in VALID_DECISIONS:
+        raise HTTPException(status_code=400, detail=f"decision must be one of {VALID_DECISIONS}")
+
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    questions = db.query(Question).filter(Question.paper_id == paper_id).all()
+    if not questions:
+        raise HTTPException(status_code=400, detail="This paper has no questions to decide on.")
+
+    ai_status_by_qid = {
+        v.question_id: v.ai_status
+        for v in db.query(VerificationResult).filter(VerificationResult.paper_id == paper_id).all()
+    }
+    existing_by_qid = {
+        d.question_id: d
+        for d in db.query(BoeDecision).filter(BoeDecision.paper_id == paper_id).all()
+    }
+
+    for q in questions:
+        row = existing_by_qid.get(q.id)
+        if row:
+            row.decision = payload.decision
+            row.comment = payload.comment
+            row.ai_status_at_decision = ai_status_by_qid.get(q.id)
+            row.decided_by = current_user
+        else:
+            db.add(BoeDecision(
+                question_id=q.id,
+                paper_id=paper_id,
+                ai_status_at_decision=ai_status_by_qid.get(q.id),
+                decision=payload.decision,
+                comment=payload.comment,
+                decided_by=current_user,
+            ))
+
+    paper.final_boe_status = PAPER_STATUS_FOR_DECISION[payload.decision]
+    db.commit()
+
+    total = len(questions)
+    is_pending = payload.decision == "PENDING"
+    return PaperDecisionSummary(
+        total_questions=total,
+        decided=0 if is_pending else total,
+        pending=total if is_pending else 0,
+        accepted=total if payload.decision == "ACCEPT" else 0,
+        rejected=total if payload.decision == "REJECT" else 0,
+        overridden=total if payload.decision == "OVERRIDE" else 0,
+    )
