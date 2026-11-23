@@ -8,16 +8,17 @@ VALID_BLOOM = {"REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE
 VALID_ALIGNMENT = {"ALIGNED", "POTENTIAL_MISMATCH", "UNCERTAIN"}
 
 # Search distance above this gets a "low score" note in the prompt.
-LOW_CONFIDENCE_DISTANCE = 0.65
+LOW_CONFIDENCE_DISTANCE = 0.75
 
 # Shared by both prompts below, so they always stay in sync.
 _SUPPORT_RULES = """RULES FOR PART 1 (support), PER QUESTION:
 - Use ONLY that question's own SYLLABUS EVIDENCE and TEXTBOOK EVIDENCE below, never your own knowledge and never another question's evidence.
 - The evidence comes from a search system, so a passage can be off-topic even though it was returned. Judge each passage on its content. A low-score note only means "check that it is relevant"; it is not a reason to reject the passage.
-- Judge the two sources separately, and be generous about what counts as a match:
-  1. syllabus_match is true if the syllabus evidence lists the question's topic, a sub-topic of it, or a related topic heading, in the same subject. Different wording is fine, and a close or partial match counts.
-  2. textbook_match is true if at least one textbook passage covers the main idea of the question, even if it covers only part of it, uses different wording, or explains the idea through an example. A close or partial match counts.
-  A source is a mismatch only when its passages are about a different concept or a different subject, or nothing in them relates to the question. Common words such as design, process, system, model or analysis shared between two subjects are not a match on their own.
+- Judge the two sources separately, and give the benefit of the doubt when the subject is right:
+  1. syllabus_match is true if the question's topic, a sub-topic of it, or its general subject area is covered by a listed unit or topic heading in the syllabus evidence. The exact term does not have to appear, because syllabus entries are short lists and a question may name a detail inside a listed topic. Different wording is fine.
+  2. textbook_match is true if at least one of the textbook passages is about the same topic or concept area as the question. The passage does not have to answer every part of the question or explain the exact point asked; discussing the topic, defining a related term, or giving an example of it is enough.
+  3. If you are unsure whether a source matches, and its passages are in the same subject and on a related topic, set that flag to true.
+  A source is a mismatch only when its passages are about a clearly different concept or a different subject, or nothing in them relates to the question. Common words such as design, process, system, model or analysis shared between two subjects are not a match on their own.
 - The status follows strictly from the two flags:
   - both true -> SUPPORTED
   - exactly one true (syllabus matches but textbook does not, or textbook matches but syllabus does not) -> REQUIRES_REVIEW
