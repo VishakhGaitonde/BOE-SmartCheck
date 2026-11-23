@@ -39,11 +39,6 @@ def delete_collection(paper_id: int):
 
 
 def add_chunks(paper_id: int, chunks: list[dict], embeddings: list[list[float]]):
-    """
-    chunks: list of dicts each with keys: id (str, unique), text, document_type,
-            chapter, section, page
-    embeddings: list of embedding vectors, same order/length as chunks
-    """
     collection = get_or_create_collection(paper_id)
 
     ids = [c["id"] for c in chunks]
@@ -54,12 +49,19 @@ def add_chunks(paper_id: int, chunks: list[dict], embeddings: list[list[float]])
             "chapter": c.get("chapter") or "",
             "section": c.get("section") or "",
             "page": c.get("page") if c.get("page") is not None else -1,
+            "source": c.get("source") or "",
         }
         for c in chunks
     ]
 
-    collection.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
-
+    BATCH = 2000
+    for i in range(0, len(ids), BATCH):
+        collection.add(
+            ids=ids[i:i + BATCH],
+            documents=documents[i:i + BATCH],
+            embeddings=embeddings[i:i + BATCH],
+            metadatas=metadatas[i:i + BATCH],
+        )
 
 def query_similar(paper_id: int, query_embedding: list[float], top_k: int = 5, document_type: str | None = None):
     collection = get_or_create_collection(paper_id)

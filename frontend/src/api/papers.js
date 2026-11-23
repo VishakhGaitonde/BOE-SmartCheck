@@ -111,3 +111,6 @@ export const deletePaper = (paperId) =>
 
 export const savePaperDecision = (paperId, decision, comment) =>
   client.put(`/papers/${paperId}/decision`, { decision, comment });
+
+export const checkDocuments = (paperId) =>
+  client.post(`/papers/${paperId}/check-documents`);

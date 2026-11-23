@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
-MAX_FILE_SIZE_MB = 50
+MAX_FILE_SIZE_MB = 90
 
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", Path(__file__).resolve().parent.parent.parent / "storage"))
 UPLOAD_DIR = STORAGE_ROOT / "uploads"

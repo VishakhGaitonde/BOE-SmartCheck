@@ -98,6 +98,7 @@ class EvidenceItemOut(BaseModel):
     page: int | None = None
     distance: float
     rerank_score: float | None = None
+    source: str | None = None        # NEW: which textbook the passage came from
 
 
 class RetrievalResultOut(BaseModel):
@@ -210,3 +211,14 @@ class PaperSummaryOut(BaseModel):
     likely_duplicate_count: int
     possible_duplicate_count: int
     reasons: list[str]
+
+class DocumentProblemOut(BaseModel):
+    kind: str          # "syllabus" or "textbook"
+    filename: str
+    message: str
+
+
+class DocumentCheckOut(BaseModel):
+    ok: bool
+    problems: list[DocumentProblemOut]
+    listed_textbooks: list[str]

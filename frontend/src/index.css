@@ -766,3 +766,78 @@ table.data-table {
     transition: none !important;
   }
 }
+
+/* ---------- Mismatch dialog ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+}
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.modal-text {
+  margin: 10px 0 6px;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+}
+.mismatch-list,
+.listed-books {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.mismatch-list {
+  list-style: none;
+  padding-left: 0;
+}
+.mismatch-list li {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: 8px;
+  background: var(--color-warning-bg);
+  word-break: break-word;
+}
+.mismatch-msg {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+}
+.listed-books li {
+  margin-bottom: 4px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.file-remove {
+  margin-left: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-danger);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}

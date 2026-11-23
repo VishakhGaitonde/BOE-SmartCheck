@@ -13,6 +13,8 @@ from app.models.document_chunk import DocumentChunk
 from app.models.question import Question
 from app.models.validation_result import ValidationResult
 from app.agents.combined_agent import verify_and_analyze_batch
+from app.processing.document_check import check_documents
+from app.schemas.paper import DocumentCheckOut
 
 import shutil
 
@@ -415,6 +417,11 @@ def build_knowledge_base(
             detail="No chunks found. Chunk syllabus and textbook documents first.",
         )
 
+    doc_names = {
+        d.id: d.filename
+        for d in db.query(Document).filter(Document.paper_id == paper_id).all()
+    }
+
     delete_collection(paper_id)
 
     texts = [c.text for c in chunks]
@@ -428,6 +435,7 @@ def build_knowledge_base(
             "chapter": c.chapter,
             "section": c.section,
             "page": c.page,
+            "source": doc_names.get(c.document_id) if c.document_type == "textbook" else None,
         }
         for c in chunks
     ]
@@ -451,6 +459,7 @@ def _format_evidence(matches: list[dict]) -> list[dict]:
             "page": meta.get("page") if meta.get("page", -1) != -1 else None,
             "distance": m["distance"],
             "rerank_score": m.get("rerank_score"),
+            "source": meta.get("source") or None,
         })
     return formatted
 
@@ -1292,3 +1301,24 @@ def save_paper_decision(
         rejected=total if payload.decision == "REJECT" else 0,
         overridden=total if payload.decision == "OVERRIDE" else 0,
     )
+
+@router.post("/{paper_id}/check-documents", response_model=DocumentCheckOut)
+def check_documents_endpoint(
+    paper_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    syllabus = db.query(Document).filter(
+        Document.paper_id == paper_id, Document.document_type == "syllabus"
+    ).first()
+    textbooks = db.query(Document).filter(
+        Document.paper_id == paper_id, Document.document_type == "textbook"
+    ).all()
+    if not syllabus or not textbooks:
+        raise HTTPException(status_code=400, detail="Upload the syllabus and at least one textbook first.")
+
+    return check_documents(paper.course, syllabus, textbooks)

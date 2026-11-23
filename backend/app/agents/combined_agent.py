@@ -1,31 +1,42 @@
+import json
+import re
+
 from app.llm.gemini_client import call_gemini, extract_json, GeminiRateLimitError
 
 VALID_STATUSES = {"SUPPORTED", "POTENTIALLY_UNRELATED", "REQUIRES_REVIEW"}
 VALID_BLOOM = {"REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE"}
 VALID_ALIGNMENT = {"ALIGNED", "POTENTIAL_MISMATCH", "UNCERTAIN"}
 
-PROMPT_TEMPLATE = """You are assisting a Board of Examinations (BOE) with two checks on one exam question: (1) whether it is supported by the prescribed syllabus/textbook, and (2) its Bloom's Taxonomy level and CO alignment.
+# Search distance above this gets a "low score" note in the prompt.
+LOW_CONFIDENCE_DISTANCE = 0.65
 
-STRICT RULES FOR PART 1 (support):
-- Use ONLY the SYLLABUS EVIDENCE and TEXTBOOK EVIDENCE below — never your own general knowledge.
-- Judge support at the TOPIC level, not exact phrase match. A substantively relevant passage (even reworded) should lean SUPPORTED.
-- REQUIRES_REVIEW only when evidence is genuinely thin or the specific concept can't be found. POTENTIALLY_UNRELATED only when there's no meaningful connection at all.
+# Shared by both prompts below, so they always stay in sync.
+_SUPPORT_RULES = """RULES FOR PART 1 (support), PER QUESTION:
+- Use ONLY that question's own SYLLABUS EVIDENCE and TEXTBOOK EVIDENCE below, never your own knowledge and never another question's evidence.
+- The evidence comes from a search system, so a passage can be off-topic even though it was returned. Judge each passage on its content. A low-score note only means "check that it is relevant"; it is not a reason to reject the passage.
+- Judge the two sources separately, and be generous about what counts as a match:
+  1. syllabus_match is true if the syllabus evidence lists the question's topic, a sub-topic of it, or a related topic heading, in the same subject. Different wording is fine, and a close or partial match counts.
+  2. textbook_match is true if at least one textbook passage covers the main idea of the question, even if it covers only part of it, uses different wording, or explains the idea through an example. A close or partial match counts.
+  A source is a mismatch only when its passages are about a different concept or a different subject, or nothing in them relates to the question. Common words such as design, process, system, model or analysis shared between two subjects are not a match on their own.
+- The status follows strictly from the two flags:
+  - both true -> SUPPORTED
+  - exactly one true (syllabus matches but textbook does not, or textbook matches but syllabus does not) -> REQUIRES_REVIEW
+  - both false -> POTENTIALLY_UNRELATED
+"""
 
-STRICT RULES FOR PART 2 (CO/Bloom):
-- Determine Bloom's level from the question's own verb/phrasing.
-- Judge CO alignment using ONLY the CO TEXT given below. If no CO text is given, set alignment to UNCERTAIN.
+PROMPT_TEMPLATE = (
+    "You are assisting a Board of Examinations (BOE) in verifying whether an exam question is supported by the prescribed syllabus and prescribed textbook.\n\n"
+    + _SUPPORT_RULES
+    + """
+Respond with STRICT JSON ONLY — no markdown, no code fences, no extra commentary — matching exactly this schema:
 
-Respond with STRICT JSON ONLY, matching exactly this schema:
 {{
   "syllabus_match": true or false,
-  "syllabus_topic": "<topic matched, or null>",
+  "syllabus_topic": "<unit/topic matched from the syllabus evidence, or null>",
   "textbook_match": true or false,
-  "textbook_reference": "<chapter/section/page, or null>",
+  "textbook_reference": "<chapter/section/page matched from the textbook evidence, or null>",
   "status": "SUPPORTED" or "POTENTIALLY_UNRELATED" or "REQUIRES_REVIEW",
-  "explanation": "<1-3 sentences, grounded only in evidence>",
-  "bloom_level": "REMEMBER" or "UNDERSTAND" or "APPLY" or "ANALYZE" or "EVALUATE" or "CREATE",
-  "co_alignment": "ALIGNED" or "POTENTIAL_MISMATCH" or "UNCERTAIN",
-  "co_bloom_explanation": "<1-2 sentences>"
+  "explanation": "<1-3 sentences grounded ONLY in the evidence above; name the subject of the question, of the syllabus evidence and of the textbook evidence>"
 }}
 
 QUESTION:
@@ -40,21 +51,13 @@ SYLLABUS EVIDENCE:
 TEXTBOOK EVIDENCE:
 {textbook_evidence}
 """
+)
 
-import json as _json
-
-BATCH_PROMPT_TEMPLATE = """You are assisting a Board of Examinations (BOE) with two checks on EACH of the following exam questions: (1) whether it is supported by the prescribed syllabus/textbook, and (2) its Bloom's Taxonomy level and CO alignment.
-
-STRICT RULES FOR PART 1 (support), PER QUESTION:
-- Use ONLY that question's own SYLLABUS EVIDENCE and TEXTBOOK EVIDENCE below -- never your own general knowledge, and never another question's evidence.
-- The evidence was retrieved by a search system and MAY be irrelevant even if it was returned -- a retrieval system always returns its "closest" matches even when nothing is actually close. Each evidence item is tagged with its retrieval confidence; treat LOW confidence items with real suspicion.
-- Judge support by whether the evidence demonstrates the SAME SUBJECT DOMAIN and the SAME SPECIFIC CONCEPT as that question -- not by superficial word overlap. Two completely unrelated fields can share common words like "design", "process", "model", "system", "analysis", "characteristics", or "attributes" without being topically related at all. If the evidence is from a visibly different subject/domain than what the question asks about, this is POTENTIALLY_UNRELATED regardless of any shared vocabulary.
-- Only mark SUPPORTED when the evidence genuinely explains or covers the specific concept that question asks about, in the correct subject domain, even if worded differently.
-- REQUIRES_REVIEW is for cases where the evidence is in the RIGHT domain/topic area but doesn't fully/specifically cover what's asked -- not for cases where the domain itself doesn't match.
-- POTENTIALLY_UNRELATED is for cases where the evidence's subject domain clearly does not match that question's subject at all, even if some words coincidentally overlap.
-- Before deciding, explicitly check: "Is this evidence actually about the same subject this question is asking about?" If no, do not default to REQUIRES_REVIEW out of caution -- say POTENTIALLY_UNRELATED.
-
-STRICT RULES FOR PART 2 (CO/Bloom), PER QUESTION:
+BATCH_PROMPT_TEMPLATE = (
+    "You are assisting a Board of Examinations (BOE) with two checks on EACH of the following exam questions: (1) whether it is supported by the prescribed syllabus/textbook, and (2) its Bloom's Taxonomy level and CO alignment.\n\n"
+    + _SUPPORT_RULES
+    + """
+RULES FOR PART 2 (CO/Bloom), PER QUESTION:
 - Determine Bloom's level from that question's own verb/phrasing.
 - Judge CO alignment using ONLY that question's own CO TEXT. If no CO text is given for it, or it's from a clearly different subject than the question, set alignment to UNCERTAIN.
 
@@ -66,7 +69,7 @@ Respond with STRICT JSON ONLY — a JSON ARRAY with exactly {num_questions} obje
   "textbook_match": true or false,
   "textbook_reference": "<chapter/section/page, or null>",
   "status": "SUPPORTED" or "POTENTIALLY_UNRELATED" or "REQUIRES_REVIEW",
-  "explanation": "<1-3 sentences, grounded only in that question's own evidence, explicitly naming the subject domain of both the question and the evidence>",
+  "explanation": "<1-3 sentences, grounded only in that question's own evidence, naming the subject of the question and of the evidence>",
   "bloom_level": "REMEMBER" or "UNDERSTAND" or "APPLY" or "ANALYZE" or "EVALUATE" or "CREATE",
   "co_alignment": "ALIGNED" or "POTENTIAL_MISMATCH" or "UNCERTAIN",
   "co_bloom_explanation": "<1-2 sentences>"
@@ -75,6 +78,48 @@ Respond with STRICT JSON ONLY — a JSON ARRAY with exactly {num_questions} obje
 QUESTIONS:
 {questions_block}
 """
+)
+
+
+def _apply_status_rule(r: dict) -> None:
+    """Status follows strictly from the two match flags, when the model gave both."""
+    s, t = r.get("syllabus_match"), r.get("textbook_match")
+    if isinstance(s, bool) and isinstance(t, bool):
+        if s and t:
+            r["status"] = "SUPPORTED"
+        elif s or t:
+            r["status"] = "REQUIRES_REVIEW"
+        else:
+            r["status"] = "POTENTIALLY_UNRELATED"
+
+
+def _strip_fences(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    return text
+
+
+def _format_evidence_block(items: list[dict]) -> str:
+    if not items:
+        return "(no evidence retrieved)"
+    lines = []
+    for i, item in enumerate(items, start=1):
+        meta_parts = []
+        if item.get("source"):
+            meta_parts.append(item["source"])
+        if item.get("chapter"):
+            meta_parts.append(item["chapter"])
+        if item.get("page") is not None:
+            meta_parts.append(f"Page {item['page']}")
+        meta_str = " | ".join(meta_parts) if meta_parts else "no metadata"
+        distance = item.get("distance")
+        note = ""
+        if distance is not None and distance > LOW_CONFIDENCE_DISTANCE:
+            note = " [low search score -- check that it is relevant]"
+        lines.append(f"[{i}] ({meta_str}){note}\n{item['text'][:600]}")
+    return "\n\n".join(lines)
+
 
 def _format_question_block(index: int, question_text, co_code, co_text, syllabus_evidence, textbook_evidence) -> str:
     return f"""--- QUESTION INDEX {index} ---
@@ -107,7 +152,7 @@ def verify_and_analyze_batch(items: list[dict]) -> list[dict]:
 
     try:
         raw = call_gemini(prompt)
-        parsed = _json.loads(_strip_fences(raw))
+        parsed = json.loads(_strip_fences(raw))
         if not isinstance(parsed, list):
             raise ValueError("Expected a JSON array")
     except GeminiRateLimitError as e:
@@ -127,6 +172,7 @@ def verify_and_analyze_batch(items: list[dict]) -> list[dict]:
             continue
 
         r["llm_call_failed"] = False
+        _apply_status_rule(r)
         if r.get("status") not in VALID_STATUSES:
             r["status"] = "REQUIRES_REVIEW"
         if r.get("bloom_level") not in VALID_BLOOM:
@@ -144,35 +190,6 @@ def verify_and_analyze_batch(items: list[dict]) -> list[dict]:
     return results
 
 
-def _strip_fences(text: str) -> str:
-    import re
-    text = text.strip()
-    text = re.sub(r'^```(?:json)?\s*', '', text)
-    text = re.sub(r'\s*```$', '', text)
-    return text
-
-def _format_evidence_block(items: list[dict]) -> str:
-    if not items:
-        return "(no evidence retrieved)"
-    lines = []
-    for i, item in enumerate(items, start=1):
-        meta_parts = []
-        if item.get("chapter"):
-            meta_parts.append(item["chapter"])
-        if item.get("page") is not None:
-            meta_parts.append(f"Page {item['page']}")
-        meta_str = " | ".join(meta_parts) if meta_parts else "no metadata"
-        distance = item.get("distance")
-        confidence_note = ""
-        if distance is not None:
-            if distance > 0.6:
-                confidence_note = " [LOW retrieval confidence -- this passage may not actually be relevant, do not assume it is just because it was retrieved]"
-            elif distance > 0.4:
-                confidence_note = " [MODERATE retrieval confidence]"
-        lines.append(f"[{i}] ({meta_str}){confidence_note}\n{item['text'][:600]}")
-    return "\n\n".join(lines)
-
-
 def verify_and_analyze(question_text, co_code, co_text, syllabus_evidence, textbook_evidence) -> dict:
     prompt = PROMPT_TEMPLATE.format(
         question_text=question_text,
@@ -186,6 +203,7 @@ def verify_and_analyze(question_text, co_code, co_text, syllabus_evidence, textb
         raw = call_gemini(prompt)
         result = extract_json(raw)
         result["llm_call_failed"] = False
+        _apply_status_rule(result)
     except GeminiRateLimitError as e:
         if e.is_daily_limit:
             raise

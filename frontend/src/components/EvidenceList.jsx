@@ -16,6 +16,7 @@ export default function EvidenceList({ title, items }) {
       {items.map((item, idx) => (
         <div key={idx} className="evidence-item">
           <div className="evidence-meta">
+            {item.source && `${item.source} · `}
             {item.chapter && `${item.chapter} · `}
             {item.section && `Section ${item.section} · `}
             {item.page != null && `Page ${item.page} · `}
